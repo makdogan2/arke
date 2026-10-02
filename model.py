@@ -1,16 +1,17 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+from dataclasses import dataclass
 
 
+@dataclass
 class Config:
-    vocab_size = 8192
-    block_size = 256      # modelin geriye bakabildiği karakter sayısı
-    n_embd     = 384      # her karakterin vektör boyutu
-    n_head     = 6
-    n_layer    = 6
-    dropout    = 0.2
-
+    vocab_size: int = 8192
+    block_size: int = 256     # how many tokens the model can look back
+    n_embd: int = 384         # vector size of each token
+    n_head: int = 6
+    n_layer: int = 6
+    dropout: float = 0.2
 
 class MultiHeadAttention(nn.Module):
     def __init__(self, cfg):

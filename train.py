@@ -1,15 +1,16 @@
 import torch, time, math
 from pathlib import Path
+from dataclasses import asdict
 from tokenizers import Tokenizer
 from model import Config, UMAY0
 
 ROOT = Path(__file__).parent
+TOKENIZER_FILE = "bpe_8192.json"
 d = torch.load(ROOT / "data" / "bpe.pt", weights_only=False)
 train_data, val_data = d["train"], d["val"]
-tok = Tokenizer.from_file(str(ROOT / "data" / "bpe_8192.json"))
+tok = Tokenizer.from_file(str(ROOT / "data" / TOKENIZER_FILE))
 
-cfg = Config()
-cfg.vocab_size = d["vocab_size"]
+cfg = Config(vocab_size=d["vocab_size"])
 
 batch_size = 64
 max_iters  = 8000
@@ -52,6 +53,7 @@ def estimate_loss():
 
 model = UMAY0(cfg).to(device)
 n_params = sum(p.numel() for p in model.parameters())
+print(f"config: {asdict(cfg)}")
 print(f"parameters: {n_params/1e6:.2f}M")
 print(f"tokens seen at end: {max_iters*batch_size*cfg.block_size/1e6:.0f}M "
       f"({max_iters*batch_size*cfg.block_size/len(train_data):.1f} epochs)")
@@ -80,7 +82,10 @@ for it in range(max_iters + 1):
 ckpt = ROOT / "umay0_bpe.pt"
 tmp = ckpt.with_suffix(".tmp")
 torch.save({"model": model.state_dict(),
-            "config": {k: v for k, v in vars(Config).items() if not k.startswith("_")}},
+            "config": asdict(cfg),            # the instance's real values
+            "tokenizer": TOKENIZER_FILE,      # which tokenizer this model speaks
+            "step": max_iters,
+            "val_loss": l["val"]},
            tmp)
 tmp.replace(ckpt)
 print("saved:", ckpt.name)

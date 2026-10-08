@@ -1,10 +1,10 @@
 import torch
 from pathlib import Path
 from tokenizers import Tokenizer
-from model import Config, UMAY0
+from model import Config, Arke0
 
 ROOT = Path(__file__).parent
-CKPT = ROOT / "umay0_bpe.pt"
+CKPT = ROOT / "arke0_bpe.pt"
 EOT = "<|endoftext|>"
 
 device = ("cuda" if torch.cuda.is_available()
@@ -17,7 +17,7 @@ ckpt = torch.load(CKPT, map_location=device, weights_only=False)
 cfg = Config(**ckpt["config"])
 tok = Tokenizer.from_file(str(ROOT / "data" / ckpt.get("tokenizer", "bpe_8192.json")))
 
-model = UMAY0(cfg).to(device)
+model = Arke0(cfg).to(device)
 model.load_state_dict(ckpt["model"])
 model.eval()
 

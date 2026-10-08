@@ -1,10 +1,12 @@
-# UMAY
+# Arke
 
 A bilingual (Turkish–English) language model built from scratch.
 
-*Umay is a protective spirit in Turkic mythology.*
+*Arke comes from the Greek* arkhe*, "first principle": the starting point of everything. Fitting for a model built from first principles, from the tokenizer up.*
 
-## UMAY-0
+Part of the Arke family, alongside [Arke Code](https://github.com/makdogan2/arke-code), a local coding assistant. (This project was previously called UMAY.)
+
+## Arke-0
 
 A small GPT — a hand-written transformer, built for learning.
 
@@ -30,7 +32,7 @@ call the venv interpreter directly, as in the commands below.
 ```
 .venv\Scripts\python.exe data_download.py   # download + clean Wikipedia -> data/mix.txt (--force to rebuild)
 .venv\Scripts\python.exe tokenizer_bpe.py   # train BPE tokenizer, encode corpus -> data/bpe.pt
-.venv\Scripts\python.exe train.py           # train -> umay0_bpe.pt
+.venv\Scripts\python.exe train.py           # train -> arke0_bpe.pt
 .venv\Scripts\python.exe sample.py          # generate text from the checkpoint
 ```
 
@@ -40,9 +42,9 @@ The checkpoint stores the model config, so `sample.py` rebuilds the exact archit
 
 | Model | Data | Params | Steps | Train time | Val loss | ≈ per char |
 |---|---|---|---|---|---|---|
-| UMAY-0 (char) | raw | ~10.8M | 5000 | ~3 min | 1.31 / char | 1.31 |
-| UMAY-0 (BPE) | raw | 13.88M | 8000 | — | 3.697 / token | 1.107 |
-| UMAY-0 (BPE) | cleaned | 13.88M | 8000 | 5 min 45 s | 3.718 / token | 1.100 |
+| Arke-0 (char) | raw | ~10.8M | 5000 | ~3 min | 1.31 / char | 1.31 |
+| Arke-0 (BPE) | raw | 13.88M | 8000 | — | 3.697 / token | 1.107 |
+| Arke-0 (BPE) | cleaned | 13.88M | 8000 | 5 min 45 s | 3.718 / token | 1.100 |
 
 Train time is the training loop on an RTX 5070 Ti (bf16, batch 64, 131M tokens, 2.6 epochs).
 
@@ -57,7 +59,7 @@ removed template junk such as `Ankara (; , ;` from the generated text.
 ```
 data_download.py   corpus download and cleaning
 tokenizer_bpe.py   BPE tokenizer training + corpus encoding
-model.py           Config dataclass + transformer (UMAY0)
+model.py           Config dataclass + transformer (Arke0)
 train.py           training loop
 sample.py          text generation
 experiments/       learning-phase scripts: char tokenizer, BPE from scratch, attention demo
@@ -65,11 +67,11 @@ experiments/       learning-phase scripts: char tokenizer, BPE from scratch, att
 
 ## Roadmap
 
-- [x] UMAY-0 — character-level, from scratch
+- [x] Arke-0 — character-level, from scratch
 - [x] BPE tokenizer
   - [x] Merge algorithm from scratch (2.43x compression at 1k merges)
   - [x] Byte-level BPE, vocab 8192, trained on the mixed corpus
 - [x] LR schedule (warmup + cosine), bf16 autocast
 - [x] Data cleaning: template leftovers, list pages, document separators
 - [ ] Scaling: bigger model, more data, longer training, `torch.compile`
-- [ ] UMAY-1 — a conversational assistant with tool use
+- [ ] Arke-1 — a conversational assistant with tool use

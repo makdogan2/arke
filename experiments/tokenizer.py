@@ -46,7 +46,7 @@ print("vocab_size:", vocab_size)
 def encode(s): return [stoi.get(c, 0) for c in s]
 def decode(l): return "".join(itos[i] for i in l)
 
-print("kayıpsızlık testi:", decode(encode("Merhaba UMAY, how are you?")))
+print("kayıpsızlık testi:", decode(encode("Merhaba Arke, how are you?")))
 
 # --- 4) kodla ve kaydet ---
 kodlu = encode(metin)

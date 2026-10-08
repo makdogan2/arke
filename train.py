@@ -2,7 +2,7 @@ import torch, time, math
 from pathlib import Path
 from dataclasses import asdict
 from tokenizers import Tokenizer
-from model import Config, UMAY0
+from model import Config, Arke0
 
 ROOT = Path(__file__).parent
 TOKENIZER_FILE = "bpe_8192.json"
@@ -51,7 +51,7 @@ def estimate_loss():
     model.train()
     return out
 
-model = UMAY0(cfg).to(device)
+model = Arke0(cfg).to(device)
 n_params = sum(p.numel() for p in model.parameters())
 print(f"config: {asdict(cfg)}")
 print(f"parameters: {n_params/1e6:.2f}M")
@@ -79,7 +79,7 @@ for it in range(max_iters + 1):
     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
     opt.step()
 
-ckpt = ROOT / "umay0_bpe.pt"
+ckpt = ROOT / "arke0_bpe.pt"
 tmp = ckpt.with_suffix(".tmp")
 torch.save({"model": model.state_dict(),
             "config": asdict(cfg),            # the instance's real values
@@ -92,5 +92,5 @@ print("saved:", ckpt.name)
 
 start = torch.zeros((1, 1), dtype=torch.long, device=device)
 out = model.generate(start, 300, temperature=0.8, top_k=50)[0].tolist()
-print("\n--- UMAY speaks ---")
+print("\n--- Arke speaks ---")
 print(tok.decode(out, skip_special_tokens=False).replace("<|endoftext|>", "\n\n<|endoftext|>\n\n"))

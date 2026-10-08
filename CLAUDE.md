@@ -1,7 +1,7 @@
-# UMAY
+# Arke
 
 A Turkish-English language model written from scratch. Learning project and CV repo
-(github.com/makdogan2/umay). The author is a first-year computer engineering student whose
+(github.com/makdogan2/arke). The author is a first-year computer engineering student whose
 goal is to truly understand LLMs.
 
 ## How to work with me
@@ -25,4 +25,4 @@ goal is to truly understand LLMs.
   the architecture from the checkpoint, not from defaults.
 - `experiments/`: scripts from the learning phase (char tokenizer, BPE demos, attention). Not
   part of the pipeline; nothing imports them.
-- Current model: `umay0_bpe.pt`, 13.88M params, 8000 steps (~6 min), val loss 3.718/token on the cleaned corpus.
+- Current model: `arke0_bpe.pt`, 13.88M params, 8000 steps (~6 min), val loss 3.718/token on the cleaned corpus.

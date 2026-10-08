@@ -67,7 +67,7 @@ class Block(nn.Module):
         return x
 
 
-class UMAY0(nn.Module):
+class Arke0(nn.Module):
     def __init__(self, cfg):
         super().__init__()
         self.cfg = cfg

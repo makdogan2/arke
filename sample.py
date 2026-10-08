@@ -5,6 +5,7 @@ from model import Config, UMAY0
 
 ROOT = Path(__file__).parent
 CKPT = ROOT / "umay0_bpe.pt"
+EOT = "<|endoftext|>"
 
 device = ("cuda" if torch.cuda.is_available()
           else "mps" if torch.backends.mps.is_available()
@@ -27,7 +28,8 @@ if "val_loss" in ckpt:
 def generate(prompt, n=200, temperature=0.8, top_k=50):
     idx = torch.tensor([tok.encode(prompt).ids], dtype=torch.long, device=device)
     out = model.generate(idx, n, temperature, top_k)[0].tolist()
-    return tok.decode(out)
+    # keep <|endoftext|> visible: the model ends a document there and starts a new one
+    return tok.decode(out, skip_special_tokens=False).replace(EOT, f"\n\n{EOT}\n\n")
 
 for p in ["Türkiye, ", "Ankara şehri ", "The history of ", "Bilim insanları "]:
     print("=" * 60)

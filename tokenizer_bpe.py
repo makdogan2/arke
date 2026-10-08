@@ -7,6 +7,9 @@ CORPUS = ROOT / "data" / "mix.txt"
 TOKENIZER_FILE = ROOT / "data" / "bpe_8192.json"
 OUT = ROOT / "data" / "bpe.pt"
 VOCAB_SIZE = 8192
+EOT = "<|endoftext|>"   # document separator written by data_download.py
+
+text = CORPUS.read_text(encoding="utf-8")
 
 # --- load cached tokenizer, or train it ---
 if TOKENIZER_FILE.exists():
@@ -19,11 +22,12 @@ else:
 
     trainer = trainers.BpeTrainer(
         vocab_size=VOCAB_SIZE,
-        special_tokens=["<|endoftext|>"],
+        special_tokens=[EOT],
         initial_alphabet=pre_tokenizers.ByteLevel.alphabet(),
         show_progress=True,
     ) 
-    tokenizer.train([str(CORPUS)], trainer)
+    # train on documents split at EOT, so the separator string never enters the merge statistics
+    tokenizer.train_from_iterator(text.split(EOT), trainer)
     tokenizer.save(str(TOKENIZER_FILE))
     print("trained and saved:", TOKENIZER_FILE.name)
 
@@ -40,7 +44,6 @@ for s in samples:
   print("", tokenizer.encode(s).tokens)
 
 # --- encode the whole corpus ---
-text = CORPUS.read_text(encoding="utf-8")
 ids = tokenizer.encode(text).ids
 
 print("\n--- stats ---")

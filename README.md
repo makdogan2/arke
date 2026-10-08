@@ -38,14 +38,19 @@ The checkpoint stores the model config, so `sample.py` rebuilds the exact archit
 
 ## Results
 
-| Model | Tokenizer | Params | Steps | Val loss |
-|---|---|---|---|---|
-| UMAY-0 (char) | characters | ~10.8M | 5000 | 1.31 / char |
-| UMAY-0 (BPE) | BPE 8192 | 13.88M | 8000 | 3.697 / token |
+| Model | Data | Params | Steps | Train time | Val loss | ≈ per char |
+|---|---|---|---|---|---|---|
+| UMAY-0 (char) | raw | ~10.8M | 5000 | ~3 min | 1.31 / char | 1.31 |
+| UMAY-0 (BPE) | raw | 13.88M | 8000 | — | 3.697 / token | 1.107 |
+| UMAY-0 (BPE) | cleaned | 13.88M | 8000 | 5 min 45 s | 3.718 / token | 1.100 |
 
-The BPE tokenizer compresses the corpus to 56.9M tokens (3.34 characters/token). Dividing by that
-ratio, 3.697 / token is roughly 1.11 / char, a clear improvement over the character-level model
-(approximate: the validation splits are not identical).
+Train time is the training loop on an RTX 5070 Ti (bf16, batch 64, 131M tokens, 2.6 epochs).
+
+On the cleaned corpus (190.3M characters) the BPE tokenizer produces 56.38M tokens, 3.38
+characters/token (raw corpus: 56.9M tokens, 3.34). Val loss per token is not comparable across
+tokenizers, so the last column divides it by characters/token. The BPE models beat the
+character-level one; cleaning barely moves the loss (the validation splits also differ), but it
+removed template junk such as `Ankara (; , ;` from the generated text.
 
 ## Repository layout
 
@@ -65,6 +70,6 @@ experiments/       learning-phase scripts: char tokenizer, BPE from scratch, att
   - [x] Merge algorithm from scratch (2.43x compression at 1k merges)
   - [x] Byte-level BPE, vocab 8192, trained on the mixed corpus
 - [x] LR schedule (warmup + cosine), bf16 autocast
-- [ ] Data cleaning: template leftovers, list pages, document separators
+- [x] Data cleaning: template leftovers, list pages, document separators
 - [ ] Scaling: bigger model, more data, longer training, `torch.compile`
 - [ ] UMAY-1 — a conversational assistant with tool use

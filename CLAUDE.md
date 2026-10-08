@@ -25,4 +25,4 @@ goal is to truly understand LLMs.
   the architecture from the checkpoint, not from defaults.
 - `experiments/`: scripts from the learning phase (char tokenizer, BPE demos, attention). Not
   part of the pipeline; nothing imports them.
-- Current model: `umay0_bpe.pt`, 13.88M params, 8000 steps, val loss 3.697/token.
+- Current model: `umay0_bpe.pt`, 13.88M params, 8000 steps (~6 min), val loss 3.718/token on the cleaned corpus.

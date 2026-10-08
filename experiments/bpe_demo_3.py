@@ -2,7 +2,7 @@ from collections import Counter
 from pathlib import Path
 import regex as re, json
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).parent.parent       # repo root
 CORPUS = ROOT / "data" / "mix.txt"
 MERGES_FILE = ROOT / "data" / "merges.json"
 NUM_MERGES = 1000

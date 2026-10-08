@@ -2,7 +2,7 @@ from collections import Counter
 from pathlib import Path
 import torch
 
-KOK = Path(__file__).parent
+KOK = Path(__file__).parent.parent        # repo root
 MIX = KOK / "data" / "mix.txt"
 CIKTI = KOK / "data" / "char.pt"
 

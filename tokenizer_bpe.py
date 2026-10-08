@@ -50,7 +50,8 @@ print("compression:", round(len(text) / len(ids), 2), "chars/token")
 print("vocab size :", tokenizer.get_vocab_size())
 
 # lossless check
-assert tokenizer.decode(ids[:5000]) == text[:len(tokenizer.decode(ids[:5000]))], "roundtrip failed"
+dec = tokenizer.decode(ids[:5000], skip_special_tokens=False)
+assert dec == text[:len(dec)], "roundtrip failed"
 print("roundtrip  : ok")
 
 data = torch.tensor(ids, dtype=torch.uint16)

@@ -18,11 +18,24 @@ LIST_RATIO = 0.4
 # leftovers of templates removed from the dump: "Ankara ( ; , )" or "(; d. 1881)"
 EMPTY_PARENS = re.compile(r"\s*\([\s,;:–\-]*\)")
 LEADING_PUNCT = re.compile(r"\(\s*[,;][,;\s]*")
+def strip_category_tail(text):
+    """Remove Wikipedia category lines at the end of an article."""
+    lines = text.rstrip().splitlines()
+    end = len(lines)
+    while end > 0:
+        s = lines[end - 1].strip()
+        if s and len(s) < 80 and not s.endswith((".", "!", "?", ":", '"', ")")):
+            end -= 1
+        else:
+            break
+    if len(lines) - end >= 2:
+        lines = lines[:end]
+    return "\n".join(lines)
 
 def clean(text):
     text = EMPTY_PARENS.sub("", text)        # "( ; , )"      -> ""
     text = LEADING_PUNCT.sub("(", text)      # "(; d. 1881)"  -> "(d. 1881)"
-    return text.strip()
+    return strip_category_tail(text).strip()
 
 def is_list_page(text):
     lines = [l for l in text.splitlines() if l.strip()]

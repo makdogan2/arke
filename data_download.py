@@ -1,8 +1,6 @@
 import argparse, os, random, re
 from collections import Counter
 from pathlib import Path
-from datasets import load_dataset
-from tqdm import tqdm
 
 ROOT = Path(__file__).parent
 OUT = ROOT / "data" / "mix.txt"
@@ -18,6 +16,19 @@ LIST_RATIO = 0.4
 # leftovers of templates removed from the dump: "Ankara ( ; , )" or "(; d. 1881)"
 EMPTY_PARENS = re.compile(r"\s*\([\s,;:–\-]*\)")
 LEADING_PUNCT = re.compile(r"\(\s*[,;][,;\s]*")
+
+# section headings after which a Wikipedia article is only references / link lists
+REFERENCE_HEADINGS = {"Kaynakça", "Dış bağlantılar", "Ayrıca bakınız",
+                      "References", "External links", "See also"}
+
+def strip_reference_sections(text):
+    """Cut the article at the first line that is exactly a reference-section heading."""
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if line.strip() in REFERENCE_HEADINGS:
+            return "\n".join(lines[:i])
+    return text
+
 def strip_category_tail(text):
     """Remove Wikipedia category lines at the end of an article."""
     lines = text.rstrip().splitlines()
@@ -35,6 +46,7 @@ def strip_category_tail(text):
 def clean(text):
     text = EMPTY_PARENS.sub("", text)        # "( ; , )"      -> ""
     text = LEADING_PUNCT.sub("(", text)      # "(; d. 1881)"  -> "(d. 1881)"
+    text = strip_reference_sections(text)    # "Kaynakça", "See also", ... -> cut
     return strip_category_tail(text).strip()
 
 def is_list_page(text):
@@ -45,6 +57,8 @@ def is_list_page(text):
     return hits / len(lines) > LIST_RATIO
 
 def collect(lang, target):
+    from datasets import load_dataset        # imported here so clean() can be tested without these packages
+    from tqdm import tqdm
     ds = load_dataset("wikimedia/wikipedia", f"20231101.{lang}",
                       split="train", streaming=True)
     docs, total, dropped = [], 0, Counter()

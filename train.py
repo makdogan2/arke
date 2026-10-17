@@ -1,4 +1,5 @@
-import torch, time, math
+import argparse, json, math, time
+import torch
 from pathlib import Path
 from dataclasses import asdict
 from tokenizers import Tokenizer
@@ -6,11 +7,21 @@ from model import Config, Arke0
 
 ROOT = Path(__file__).parent
 TOKENIZER_FILE = "bpe_8192.json"
+
+# model size from the command line; defaults come from Config, so plain `train.py` is unchanged
+parser = argparse.ArgumentParser()
+parser.add_argument("--n_layer", type=int, default=Config.n_layer)
+parser.add_argument("--n_embd",  type=int, default=Config.n_embd)
+parser.add_argument("--n_head",  type=int, default=Config.n_head)
+parser.add_argument("--name", default="arke0_bpe", help="checkpoint <name>.pt and log runs/<name>.json")
+args = parser.parse_args()
+
 d = torch.load(ROOT / "data" / "bpe.pt", weights_only=False)
 train_data, val_data = d["train"], d["val"]
 tok = Tokenizer.from_file(str(ROOT / "data" / TOKENIZER_FILE))
 
-cfg = Config(vocab_size=d["vocab_size"])
+cfg = Config(vocab_size=d["vocab_size"], n_layer=args.n_layer,
+             n_embd=args.n_embd, n_head=args.n_head)
 
 batch_size = 64
 max_iters  = 8000
@@ -52,14 +63,17 @@ def estimate_loss():
     return out
 
 model = Arke0(cfg).to(device)
-n_params = sum(p.numel() for p in model.parameters())
+n_params = sum(p.numel() for p in model.parameters())   # tied head is counted once
+# scaling laws use parameters without the embedding lookup tables
+n_params_non_emb = n_params - model.tok_emb.weight.numel() - model.pos_emb.weight.numel()
 print(f"config: {asdict(cfg)}")
-print(f"parameters: {n_params/1e6:.2f}M")
+print(f"parameters: {n_params/1e6:.2f}M ({n_params_non_emb/1e6:.2f}M without embeddings)")
 print(f"tokens seen at end: {max_iters*batch_size*cfg.block_size/1e6:.0f}M "
       f"({max_iters*batch_size*cfg.block_size/len(train_data):.1f} epochs)")
 
 opt = torch.optim.AdamW(model.parameters(), lr=max_lr, betas=(0.9, 0.95), weight_decay=0.1)
 
+history = []                                         # one entry per eval, saved to runs/<name>.json
 t0 = time.time()
 for it in range(max_iters + 1):
     lr = get_lr(it)
@@ -68,6 +82,8 @@ for it in range(max_iters + 1):
 
     if it % eval_every == 0:
         l = estimate_loss()
+        history.append({"step": it, "train": l["train"], "val": l["val"],
+                        "lr": lr, "time": time.time() - t0})
         print(f"step {it:5d} | train {l['train']:.4f} | val {l['val']:.4f} "
               f"| lr {lr:.1e} | {time.time()-t0:.0f}s")
 
@@ -78,8 +94,9 @@ for it in range(max_iters + 1):
     loss.backward()
     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
     opt.step()
+train_time = time.time() - t0
 
-ckpt = ROOT / "arke0_bpe.pt"
+ckpt = ROOT / f"{args.name}.pt"
 tmp = ckpt.with_suffix(".tmp")
 torch.save({"model": model.state_dict(),
             "config": asdict(cfg),            # the instance's real values
@@ -89,6 +106,19 @@ torch.save({"model": model.state_dict(),
            tmp)
 tmp.replace(ckpt)
 print("saved:", ckpt.name)
+
+log = ROOT / "runs" / f"{args.name}.json"
+log.parent.mkdir(exist_ok=True)
+log.write_text(json.dumps({"name": args.name,
+                           "config": asdict(cfg),
+                           "params": n_params,
+                           "params_non_emb": n_params_non_emb,
+                           "batch_size": batch_size,
+                           "max_iters": max_iters,
+                           "max_lr": max_lr,
+                           "train_time": train_time,
+                           "history": history}, indent=2))
+print("log:", log.relative_to(ROOT))
 
 start = torch.zeros((1, 1), dtype=torch.long, device=device)
 out = model.generate(start, 300, temperature=0.8, top_k=50)[0].tolist()

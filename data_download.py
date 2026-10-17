@@ -18,8 +18,8 @@ EMPTY_PARENS = re.compile(r"\s*\([\s,;:–\-]*\)")
 LEADING_PUNCT = re.compile(r"\(\s*[,;][,;\s]*")
 
 # section headings after which a Wikipedia article is only references / link lists
-REFERENCE_HEADINGS = {"Kaynakça", "Dış bağlantılar", "Ayrıca bakınız",
-                      "References", "External links", "See also"}
+REFERENCE_HEADINGS = {"Kaynakça", "Kaynaklar", "Notlar", "Dış bağlantılar", "Ayrıca bakınız",
+                      "References", "Further reading", "External links", "See also"}
 
 def strip_reference_sections(text):
     """Cut the article at the first line that is exactly a reference-section heading."""

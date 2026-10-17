@@ -12,6 +12,10 @@ class TestStripReferenceSections(unittest.TestCase):
         text = BODY_TR + "\n\nKaynakça\n\nDış bağlantılar\n Resmî site"
         self.assertEqual(strip_reference_sections(text).strip(), BODY_TR)
 
+    def test_cuts_at_kaynaklar(self):
+        text = BODY_TR + "\n\nKaynaklar\n\nYılmaz, A. (1999). Ankara Tarihi."
+        self.assertEqual(strip_reference_sections(text).strip(), BODY_TR)
+
     def test_cuts_at_references(self):
         text = BODY_EN + "\n\n  References  \n\nSmith, J. (2001). A History of Ankara."
         self.assertEqual(strip_reference_sections(text).strip(), BODY_EN)

@@ -22,8 +22,9 @@ model.load_state_dict(ckpt["model"])
 model.eval()
 
 print(f"device: {device} | config: {ckpt['config']}")
-if "val_loss" in ckpt:
-    print(f"trained {ckpt['step']} steps, val loss {ckpt['val_loss']:.4f}")
+val = ckpt.get("best_val", ckpt.get("val_loss"))   # older checkpoints stored "val_loss"
+if val is not None:
+    print(f"trained {ckpt['step']} steps, val loss {val:.4f}")
 
 def generate(prompt, n=200, temperature=0.8, top_k=50):
     idx = torch.tensor([tok.encode(prompt).ids], dtype=torch.long, device=device)

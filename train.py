@@ -1,4 +1,5 @@
-import argparse, torch, time, math
+import argparse, json, math, time
+import torch
 from pathlib import Path
 from dataclasses import asdict
 from tokenizers import Tokenizer
@@ -7,10 +8,15 @@ from model import Config, Arke0
 ROOT = Path(__file__).parent
 TOKENIZER_FILE = "bpe_8192.json"
 
+# model size from the command line; defaults come from Config, so plain `train.py` is unchanged
 parser = argparse.ArgumentParser()
-parser.add_argument("--out", default="arke0_bpe",
-                    help="checkpoint name: <out>.pt is the best model, <out>_last.pt the latest state")
-parser.add_argument("--resume", action="store_true", help="continue from <out>_last.pt")
+parser.add_argument("--n_layer", type=int, default=Config.n_layer)
+parser.add_argument("--n_embd",  type=int, default=Config.n_embd)
+parser.add_argument("--n_head",  type=int, default=Config.n_head)
+parser.add_argument("--name", default="arke0_bpe",
+                    help="<name>.pt is the best model, <name>_last.pt the latest state, runs/<name>.json the log")
+parser.add_argument("--resume", action="store_true",
+                    help="continue from <name>_last.pt (model size and schedule come from the checkpoint)")
 parser.add_argument("--max-iters", type=int, default=8000)
 parser.add_argument("--eval-every", type=int, default=500)
 parser.add_argument("--save-every", type=int, default=500)
@@ -31,8 +37,8 @@ max_lr     = 6e-4
 min_lr     = 6e-5
 device     = "cuda"
 
-ckpt_best = ROOT / f"{args.out}.pt"
-ckpt_last = ROOT / f"{args.out}_last.pt"
+ckpt_best = ROOT / f"{args.name}.pt"
+ckpt_last = ROOT / f"{args.name}_last.pt"
 
 torch.manual_seed(1337)
 torch.set_float32_matmul_precision("high")
@@ -72,11 +78,17 @@ def save(path, step):
     """Write everything needed to rebuild the model AND to continue training exactly.
     `step` = number of optimizer updates already done."""
     state = {
-        # TODO(Mehmet): fill in the dict. sample.py reads "model", "config", "tokenizer", "step".
-        #   model weights, optimizer state (AdamW's moving averages!), the full config as a dict,
-        #   step, best_val, the tokenizer file name,
-        #   "train": the hyperparameters that shape the run (batch_size, max_iters, warmup, max_lr, min_lr),
-        #   "rng": the CPU and CUDA random generator states (torch.get_rng_state / torch.cuda.get_rng_state)
+        "model": model.state_dict(),
+        "optimizer": opt.state_dict(),        # AdamW's moving averages: without them a resume restarts "cold"
+        "config": asdict(cfg),                # the instance's real values
+        "tokenizer": TOKENIZER_FILE,          # which tokenizer this model speaks
+        "step": step,
+        "best_val": best_val,
+        "train": dict(batch_size=batch_size, max_iters=max_iters, warmup=warmup,
+                      max_lr=max_lr, min_lr=min_lr),
+        "history": history,
+        "elapsed": time.time() - t0,
+        "rng": {"cpu": torch.get_rng_state(), "cuda": torch.cuda.get_rng_state()},
     }
     tmp = path.with_suffix(".tmp")
     torch.save(state, tmp)
@@ -86,36 +98,41 @@ if args.resume:
     # load to CPU: RNG states must stay CPU tensors; weights and optimizer state
     # are copied to the GPU by load_state_dict
     ckpt = torch.load(ckpt_last, map_location="cpu", weights_only=False)
-    cfg = ...                          # TODO: rebuild the architecture from the checkpoint, not from defaults
-    max_iters = ...                    # TODO: from the checkpoint, so the cosine schedule stays the same
+    cfg = Config(**ckpt["config"])     # the checkpoint's architecture, not the defaults / command line
+    tr = ckpt["train"]                 # same schedule as before the interruption
+    batch_size, max_iters, warmup, max_lr, min_lr = (
+        tr[k] for k in ("batch_size", "max_iters", "warmup", "max_lr", "min_lr"))
     model = Arke0(cfg).to(device)
-    model.load_state_dict(...)         # TODO
+    model.load_state_dict(ckpt["model"])
     opt = make_optimizer(model)
-    opt.load_state_dict(...)           # TODO
-    start_step = ...                   # TODO
-    best_val = ...                     # TODO
-    torch.set_rng_state(...)           # TODO: same CPU generator -> get_batch() draws the same batches
-    torch.cuda.set_rng_state(...)      # TODO: same CUDA generator -> same dropout masks
+    opt.load_state_dict(ckpt["optimizer"])
+    start_step, best_val, history = ckpt["step"], ckpt["best_val"], ckpt["history"]
+    t0 = time.time() - ckpt["elapsed"]
+    torch.set_rng_state(ckpt["rng"]["cpu"])         # same CPU generator -> get_batch() draws the same batches
+    torch.cuda.set_rng_state(ckpt["rng"]["cuda"])   # same CUDA generator -> same dropout masks
     print(f"resumed {ckpt_last.name} at step {start_step} | best val {best_val:.4f}")
 else:
-    cfg = Config(vocab_size=d["vocab_size"])
+    cfg = Config(vocab_size=d["vocab_size"], n_layer=args.n_layer,
+                 n_embd=args.n_embd, n_head=args.n_head)
     model = Arke0(cfg).to(device)
     opt = make_optimizer(model)
     start_step, best_val = 0, float("inf")
+    history = []                                     # one entry per eval, saved to runs/<name>.json
+    t0 = time.time()
 
-n_params = sum(p.numel() for p in model.parameters())
+n_params = sum(p.numel() for p in model.parameters())   # tied head is counted once
+# scaling laws use parameters without the embedding lookup tables
+n_params_non_emb = n_params - model.tok_emb.weight.numel() - model.pos_emb.weight.numel()
 print(f"config: {asdict(cfg)}")
-print(f"parameters: {n_params/1e6:.2f}M")
+print(f"parameters: {n_params/1e6:.2f}M ({n_params_non_emb/1e6:.2f}M without embeddings)")
 print(f"tokens seen at end: {max_iters*batch_size*cfg.block_size/1e6:.0f}M "
       f"({max_iters*batch_size*cfg.block_size/len(train_data):.1f} epochs)")
 
-t0 = time.time()
 for it in range(start_step, max_iters + 1):
-    # TODO(Mehmet): every save_every steps, save the latest state to ckpt_last.
-    #   It happens HERE, before eval and the update: the file then means "it updates done",
-    #   and a resume starts this loop at exactly the same `it`.
-    #   Skip it == start_step: that state is already on disk (or is the untrained model).
-    if ...:
+    # Save here, before eval and the update: the file then means "it updates done",
+    # and a resume starts this loop at exactly the same `it`. At it == start_step
+    # that state is already on disk (or is the untrained model).
+    if it % save_every == 0 and it > start_step:
         save(ckpt_last, it)
 
     if args.stop_at is not None and it == args.stop_at:
@@ -128,10 +145,13 @@ for it in range(start_step, max_iters + 1):
 
     if it % eval_every == 0:
         l = estimate_loss()
+        history.append({"step": it, "train": l["train"], "val": l["val"],
+                        "lr": lr, "time": time.time() - t0})
         print(f"step {it:5d} | train {l['train']:.4f} | val {l['val']:.4f} "
               f"| lr {lr:.1e} | {time.time()-t0:.0f}s")
-        # TODO(Mehmet): if this is the lowest val loss so far, update best_val and save ckpt_best
-        ...
+        if l["val"] < best_val:
+            best_val = l["val"]
+            save(ckpt_best, it)
 
     if it == max_iters:        # the last step only evaluates
         break
@@ -143,9 +163,24 @@ for it in range(start_step, max_iters + 1):
     loss.backward()
     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
     opt.step()
+train_time = time.time() - t0
 
 save(ckpt_last, max_iters)
 print(f"saved: {ckpt_last.name} | best: {ckpt_best.name} (val {best_val:.4f})")
+
+log = ROOT / "runs" / f"{args.name}.json"
+log.parent.mkdir(exist_ok=True)
+log.write_text(json.dumps({"name": args.name,
+                           "config": asdict(cfg),
+                           "params": n_params,
+                           "params_non_emb": n_params_non_emb,
+                           "batch_size": batch_size,
+                           "max_iters": max_iters,
+                           "max_lr": max_lr,
+                           "train_time": train_time,
+                           "best_val": best_val,
+                           "history": history}, indent=2))
+print("log:", log.relative_to(ROOT))
 
 start = torch.zeros((1, 1), dtype=torch.long, device=device)
 out = model.generate(start, 300, temperature=0.8, top_k=50)[0].tolist()

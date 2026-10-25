@@ -13,6 +13,18 @@ LIST_RATIO = 0.4
 EMPTY_PARENS = re.compile(r"\s*\([\s,;:–\-]*\)")
 LEADING_PUNCT = re.compile(r"\(\s*[,;][,;\s]*")
 
+# section headings after which a Wikipedia article is only references / link lists
+REFERENCE_HEADINGS = {"Kaynakça", "Kaynaklar", "Notlar", "Dış bağlantılar", "Ayrıca bakınız",
+                      "References", "Further reading", "External links", "See also"}
+
+def strip_reference_sections(text):
+    """Cut the article at the first line that is exactly a reference-section heading."""
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if line.strip() in REFERENCE_HEADINGS:
+            return "\n".join(lines[:i])
+    return text
+
 def strip_category_tail(text):
     """Remove category lines (short, no final punctuation) at the end of a document."""
     lines = text.rstrip().splitlines()
@@ -31,6 +43,7 @@ def clean(text):
     text = text.replace(EOT, "")             # the separator must only ever appear between documents
     text = EMPTY_PARENS.sub("", text)        # "( ; , )"      -> ""
     text = LEADING_PUNCT.sub("(", text)      # "(; d. 1881)"  -> "(d. 1881)"
+    text = strip_reference_sections(text)    # "Kaynakça", "See also", ... -> cut
     return strip_category_tail(text).strip()
 
 def is_list_page(text):
@@ -46,13 +59,19 @@ DUP_CHAR_FRAC = 0.20    # share of characters that sit in those copied lines
 
 def is_repetitive(text):
     """True if the document repeats itself: menus, "read more" blocks, spam, copy-pasted lists.
-    TODO(Mehmet): implement with the two thresholds above.
-      - take the non-empty lines (strip them)
-      - a line is a "duplicate" if the same line already appeared earlier in the document
-      - repetitive if  duplicates / lines > DUP_LINE_FRAC
-                   or  chars in duplicates / chars in all lines > DUP_CHAR_FRAC
-    """
-    raise NotImplementedError("TODO(Mehmet): is_repetitive")
+    A line counts as a duplicate when the same line already appeared earlier in the document."""
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    if not lines:
+        return False
+    seen, dup_lines, dup_chars = set(), 0, 0
+    for line in lines:
+        if line in seen:
+            dup_lines += 1
+            dup_chars += len(line)
+        else:
+            seen.add(line)
+    total_chars = sum(len(l) for l in lines)
+    return dup_lines / len(lines) > DUP_LINE_FRAC or dup_chars / total_chars > DUP_CHAR_FRAC
 
 def reject_reason(text):
     """None if the (already cleaned) document is kept, otherwise a short reason for the log."""

@@ -1,10 +1,13 @@
+import argparse
 import torch
 from pathlib import Path
 from tokenizers import Tokenizer
 from model import Config, Arke0
 
 ROOT = Path(__file__).parent
-CKPT = ROOT / "arke0_bpe.pt"
+parser = argparse.ArgumentParser()
+parser.add_argument("--name", default="arke0_bpe", help="checkpoint <name>.pt written by train.py")
+CKPT = ROOT / f"{parser.parse_args().name}.pt"
 EOT = "<|endoftext|>"
 
 device = ("cuda" if torch.cuda.is_available()

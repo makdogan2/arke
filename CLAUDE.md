@@ -31,9 +31,16 @@ AI is my collaborator, not my replacement: I keep the understanding and the cont
 - `data/` and `*.pt` are gitignored.
 
 ## Pipeline
-`data_download.py` -> `tokenizer_bpe.py` -> `train.py` -> `sample.py`; model in `model.py`.
-- Tokenizer: byte-level BPE, vocab 8192 (`data/bpe_8192.json`), encoded corpus in `data/bpe.pt`.
-  `<|endoftext|>` is a special token.
+`data_prep.py` -> `train.py` -> `sample.py`; model in `model.py`, cleaning rules in `textclean.py`.
+- `data_prep.py`: Wikipedia (`data/mix.txt`) + FineWeb2-HQ TR + FineWeb-Edu EN, ~50/50 TR/EN.
+  Resumable (shards in `data/prep/`), log in `logs/data_prep.log`. Writes `data/train.bin`,
+  `data/val.bin` (uint16), `data/meta.json` and the tokenizer `data/bpe_16384.json`.
+  `--smoke` does a tiny run into `data/prep_smoke/`.
+- `train.py --data <folder>` reads those files with memmap; `--resume` continues from `<name>_last.pt`.
+  `torch.compile` needs `triton-windows` (installed); `--no-compile` turns it off.
+- Old pipeline (`data_download.py` -> `tokenizer_bpe.py` -> `data/bpe.pt`, vocab 8192) is what
+  `arke0_bpe.pt` and the runs/ size experiment were trained on; the current train.py no longer reads it.
+- `<|endoftext|>` is a special token (id 0) separating documents.
 - `Config` is a dataclass in `model.py`. Checkpoints store `asdict(cfg)`; `sample.py` rebuilds
   the architecture from the checkpoint, not from defaults.
 - `experiments/`: scripts from the learning phase (char tokenizer, BPE demos, attention). Not

@@ -1,10 +1,11 @@
-import argparse
+import argparse, sys
 import torch
 from pathlib import Path
 from tokenizers import Tokenizer
 from model import Config, Arke0
 
 ROOT = Path(__file__).parent
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # Turkish text also when the output goes to a file
 parser = argparse.ArgumentParser()
 parser.add_argument("--name", default="arke0_bpe", help="checkpoint <name>.pt written by train.py")
 CKPT = ROOT / f"{parser.parse_args().name}.pt"

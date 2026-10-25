@@ -1,4 +1,4 @@
-import argparse, importlib.util, json, math, os, time
+import argparse, importlib.util, json, math, os, sys, time
 import numpy as np
 import torch
 from pathlib import Path
@@ -7,6 +7,7 @@ from tokenizers import Tokenizer
 from model import Config, Arke0
 
 ROOT = Path(__file__).parent
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # Turkish text also when the output goes to a file
 
 # model size from the command line; defaults come from Config, so plain `train.py` is unchanged
 parser = argparse.ArgumentParser()
@@ -107,7 +108,7 @@ def save(path, step):
         "step": step,
         "best_val": best_val,
         "train": dict(batch_size=batch_size, max_iters=max_iters, warmup=warmup,
-                      max_lr=max_lr, min_lr=min_lr),
+                      max_lr=max_lr, min_lr=min_lr, eval_every=eval_every, save_every=save_every),
         "history": history,
         "elapsed": time.time() - t0,
         "rng": {"cpu": torch.get_rng_state(), "cuda": torch.cuda.get_rng_state()},
@@ -121,6 +122,8 @@ if ckpt:
     tr = ckpt["train"]                 # same schedule as before the interruption
     batch_size, max_iters, warmup, max_lr, min_lr = (
         tr[k] for k in ("batch_size", "max_iters", "warmup", "max_lr", "min_lr"))
+    # evals draw batches from the same RNG, so a different eval schedule would change the training batches
+    eval_every, save_every = tr.get("eval_every", eval_every), tr.get("save_every", save_every)
     model = Arke0(cfg).to(device)
     model.load_state_dict(ckpt["model"])
     opt = make_optimizer(model)

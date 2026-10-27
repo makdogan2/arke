@@ -1,4 +1,5 @@
-import argparse, importlib.util, json, math, os, sys, time
+import argparse, importlib.util, json, math, os, signal, sys, time
+from datetime import datetime, timedelta
 import numpy as np
 import torch
 from pathlib import Path
@@ -27,6 +28,10 @@ parser.add_argument("--compile", action=argparse.BooleanOptionalAction, default=
                     help="torch.compile the model (needs Triton; on Windows: uv pip install triton-windows)")
 parser.add_argument("--stop-at", type=int, default=None,
                     help="quit at this step without finishing (simulates a crash, for testing --resume)")
+parser.add_argument("--hours", type=float, default=None,
+                    help="stop this session after this many hours: save, exit, continue later with --resume")
+parser.add_argument("--until", default=None,
+                    help="stop this session at this clock time, e.g. 08:00 (tomorrow if it has passed today)")
 args = parser.parse_args()
 
 batch_size = 64
@@ -154,6 +159,46 @@ print(f"parameters: {n_params/1e6:.2f}M ({n_params_non_emb/1e6:.2f}M without emb
 print(f"tokens seen at end: {max_iters*batch_size*cfg.block_size/1e6:.0f}M "
       f"({max_iters*batch_size*cfg.block_size/len(train_data):.1f} epochs)")
 
+def write_run_log():
+    """runs/<name>.json: settings and loss history so far, rewritten at every stop and at the end."""
+    log = ROOT / "runs" / f"{args.name}.json"
+    log.parent.mkdir(exist_ok=True)
+    log.write_text(json.dumps({"name": args.name,
+                               "config": asdict(cfg),
+                               "data": rel(data_dir, ROOT),
+                               "params": n_params,
+                               "params_non_emb": n_params_non_emb,
+                               "batch_size": batch_size,
+                               "max_iters": max_iters,
+                               "max_lr": max_lr,
+                               "train_time": time.time() - t0,
+                               "best_val": best_val,
+                               "history": history}, indent=2))
+    return log
+
+# When this session ends: --hours / --until set a deadline, Ctrl+C asks for a stop.
+# Either way the loop stops at the top of a step, saves <name>_last.pt and exits; --resume continues.
+deadline = None
+if args.hours is not None:
+    deadline = time.time() + args.hours * 3600
+if args.until is not None:
+    h, m = map(int, args.until.split(":"))
+    end = datetime.now().replace(hour=h, minute=m, second=0, microsecond=0)
+    if end <= datetime.now():
+        end += timedelta(days=1)
+    deadline = min(deadline, end.timestamp()) if deadline else end.timestamp()
+if deadline:
+    print(f"this session stops at {datetime.fromtimestamp(deadline):%d.%m %H:%M}")
+
+stop_requested = False
+def request_stop(signum, frame):
+    """First Ctrl+C: finish the current step, save, exit. A second Ctrl+C quits at once."""
+    global stop_requested
+    stop_requested = True
+    signal.signal(signal.SIGINT, signal.default_int_handler)
+    print("\nCtrl+C: saving and stopping at the next step (Ctrl+C again: quit without saving)")
+signal.signal(signal.SIGINT, request_stop)
+
 mark_t, mark_it, tok_s = time.time(), start_step, 0.0      # training speed, without eval and saving
 for it in range(start_step, max_iters + 1):
     if it % eval_every == 0 and it > mark_it:
@@ -168,6 +213,13 @@ for it in range(start_step, max_iters + 1):
 
     if args.stop_at is not None and it == args.stop_at:
         print(f"--stop-at {it}: quitting without finishing")
+        raise SystemExit
+
+    if stop_requested or (deadline and time.time() >= deadline):
+        if it > start_step and it % save_every != 0:   # a multiple of save_every was saved just above
+            save(ckpt_last, it)
+        write_run_log()
+        print(f"stopped at step {it}/{max_iters}, continue with: train.py --name {args.name} --resume")
         raise SystemExit
 
     lr = get_lr(it)
@@ -195,25 +247,10 @@ for it in range(start_step, max_iters + 1):
     loss.backward()
     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
     opt.step()
-train_time = time.time() - t0
 
 save(ckpt_last, max_iters)
 print(f"saved: {ckpt_last.name} | best: {ckpt_best.name} (val {best_val:.4f})")
-
-log = ROOT / "runs" / f"{args.name}.json"
-log.parent.mkdir(exist_ok=True)
-log.write_text(json.dumps({"name": args.name,
-                           "config": asdict(cfg),
-                           "data": rel(data_dir, ROOT),
-                           "params": n_params,
-                           "params_non_emb": n_params_non_emb,
-                           "batch_size": batch_size,
-                           "max_iters": max_iters,
-                           "max_lr": max_lr,
-                           "train_time": train_time,
-                           "best_val": best_val,
-                           "history": history}, indent=2))
-print("log:", log)
+print("log:", write_run_log())
 
 start = torch.zeros((1, 1), dtype=torch.long, device=device)
 out = model.generate(start, 300, temperature=0.8, top_k=50)[0].tolist()

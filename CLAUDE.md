@@ -16,10 +16,16 @@ AI is my collaborator, not my replacement: I keep the understanding and the cont
   review of every diff.
 - **Yours:** research (options, licenses, trade-offs), boring/repetitive code (downloads, logging,
   argparse, file handling), reviewing my code, tests, explanations.
-- Test for each piece: "if this breaks in a week, must I fix it without you?"
-  - yes (core logic): give me a skeleton with `TODO(Mehmet)` blanks; I fill them, you check.
-    When I'm stuck, give a hint or a small analogous example, never the answer. Never fill my TODOs yourself.
-  - no: you write it; I read it and must be able to explain it back.
+- Code: you give it to me in chat and I type it myself in VS Code (since 2026-10-27).
+  - Complete and ready to type: no blanks, no TODOs, no open question I'd have to answer first.
+  - Say exactly where it goes: a whole file, or which file and after which existing line.
+  - After the code: what each part does and why, then the command that checks it.
+  - After the pieces, also give the whole changed file in one code block, so I can compare.
+  - Don't write code files yourself. Once I've typed it, read the file and check it against what you sent.
+  - Commit only when I say "commit".
+- Docs and notes (`DEFTER.md`, `CLAUDE.md`, README): you write them, I read the diff.
+- `DEFTER.md` is the stage notebook: keep the current stage, the next stages, finished stages
+  (with commits) and decisions up to date at the end of every stage.
 - Teach with small runnable examples and verified sources (docs, papers, videos); check links before giving them.
 - Measure, don't trust: claims like "faster" or "better" get a before/after number.
 

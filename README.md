@@ -21,22 +21,52 @@ A small GPT — a hand-written transformer, built for learning.
 ```
 uv venv --python 3.12
 uv pip install torch --index-url https://download.pytorch.org/whl/cu128
-uv pip install tokenizers datasets tqdm numpy matplotlib regex
+uv pip install tokenizers datasets huggingface_hub pyarrow tqdm numpy matplotlib regex
+uv pip install "triton-windows>=3.7,<3.8"   # Windows only, for torch.compile (torch 2.11 -> Triton 3.7)
 ```
 
 On Windows, if the PowerShell execution policy blocks `.venv\Scripts\activate`, skip activation and
 call the venv interpreter directly, as in the commands below.
 
+## Data
+
+`data_prep.py` builds a ~2.2 GB corpus, about 50% Turkish and 50% English by bytes:
+
+| Source | Language | License | Used |
+|---|---|---|---|
+| [Wikipedia](https://huggingface.co/datasets/wikimedia/wikipedia) (20231101) | TR + EN | CC BY-SA 3.0 + GFDL | ~200 MB, from `data_download.py` |
+| [FineWeb2-HQ](https://huggingface.co/datasets/epfml/FineWeb2-HQ) `tur_Latn` | TR | ODC-By 1.0 | ~1.0 GB after filtering |
+| [FineWeb-Edu](https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu) `sample-10BT` | EN | ODC-By 1.0 | ~1.0 GB after filtering |
+
+The FineWeb datasets are built from Common Crawl and are also subject to its terms of use.
+
+Steps: download parquet files, clean and filter every document (`textclean.py`: template leftovers,
+reference sections, date-list pages, pages under 500 characters, repetitive pages with the
+Gopher duplicate-line thresholds), drop exact duplicates, train a byte-level BPE tokenizer
+(vocab 16384) on a 50/50 TR/EN sample, tokenize, and send 1% of the documents to validation.
+Work is saved in small shards, so after a crash the same command continues where it stopped.
+
 ## Usage
 
 ```
-.venv\Scripts\python.exe data_download.py   # download + clean Wikipedia -> data/mix.txt (--force to rebuild)
-.venv\Scripts\python.exe tokenizer_bpe.py   # train BPE tokenizer, encode corpus -> data/bpe.pt
-.venv\Scripts\python.exe train.py           # train -> arke0_bpe.pt
-.venv\Scripts\python.exe sample.py          # generate text from the checkpoint
+.venv\Scripts\python.exe data_download.py           # Wikipedia -> data/mix.txt (--force to rebuild)
+.venv\Scripts\python.exe data_prep.py               # -> data/train.bin, val.bin, meta.json, bpe_16384.json
+.venv\Scripts\python.exe train.py --name arke1      # train -> arke1.pt (best val), arke1_last.pt, runs/arke1.json
+.venv\Scripts\python.exe train.py --name arke1 --resume   # continue an interrupted run
+.venv\Scripts\python.exe sample.py --name arke1     # generate text from the checkpoint
+.venv\Scripts\python.exe -m unittest test_clean     # tests for the cleaning rules
 ```
 
-The checkpoint stores the model config, so `sample.py` rebuilds the exact architecture it was trained with.
+- `data_prep.py --smoke` runs the whole pipeline on ~20 MB per source into `data/prep_smoke/`
+  in a few minutes; progress goes to `logs/data_prep.log`.
+- `train.py` options: model size (`--n_layer --n_embd --n_head`), `--data <folder>`, `--max-iters`,
+  `--eval-every`, `--save-every`, `--no-compile`.
+- A checkpoint stores the model config, optimizer state, schedule, data folder and random number
+  generator states: `sample.py` rebuilds the exact architecture, and `--resume` reproduces the
+  losses of an uninterrupted run.
+
+Arke-0 below was trained with the earlier pipeline (`data_download.py` -> `tokenizer_bpe.py` ->
+`data/bpe.pt`, vocab 8192), which the current `train.py` no longer reads.
 
 ## Results
 
@@ -57,11 +87,16 @@ removed template junk such as `Ankara (; , ;` from the generated text.
 ## Repository layout
 
 ```
-data_download.py   corpus download and cleaning
-tokenizer_bpe.py   BPE tokenizer training + corpus encoding
+data_download.py   Wikipedia download -> data/mix.txt
+data_prep.py       resumable data pipeline: download, clean, dedup, tokenizer, train/val .bin
+textclean.py       cleaning and filtering rules shared by the data scripts
+test_clean.py      tests for textclean.py
 model.py           Config dataclass + transformer (Arke0)
-train.py           training loop
+train.py           training loop: memmap data, torch.compile, checkpoints + resume
 sample.py          text generation
+plot_scaling.py    plots the model size experiment from runs/*.json
+count_junk.py      measures leftover junk (CSS, category lines, references) in the corpus
+tokenizer_bpe.py   earlier pipeline: BPE tokenizer + data/bpe.pt (vocab 8192)
 experiments/       learning-phase scripts: char tokenizer, BPE from scratch, attention demo
 ```
 
@@ -73,5 +108,8 @@ experiments/       learning-phase scripts: char tokenizer, BPE from scratch, att
   - [x] Byte-level BPE, vocab 8192, trained on the mixed corpus
 - [x] LR schedule (warmup + cosine), bf16 autocast
 - [x] Data cleaning: template leftovers, list pages, document separators
-- [ ] Scaling: bigger model, more data, longer training, `torch.compile`
+- [x] `torch.compile` + fused AdamW: 207k -> 251k tokens/s on a 33.7M model
+- [x] Checkpoints with exact resume
+- [x] Data pipeline: FineWeb2-HQ TR + FineWeb-Edu EN, dedup, 50/50 TR/EN tokenizer (vocab 16384)
+- [ ] Scaling: bigger model trained on the new ~2.2 GB corpus
 - [ ] Arke-1 — a conversational assistant with tool use

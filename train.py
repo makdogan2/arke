@@ -101,6 +101,18 @@ def make_optimizer(model):
     # fused: one GPU kernel updates all parameters instead of several small kernels per tensor
     return torch.optim.AdamW(model.parameters(), lr=max_lr, betas=(0.9, 0.95), weight_decay=0.1, fused=True)
 
+def replace_retry(tmp, path, tries=10):
+    """tmp.replace(path), but on Windows a virus scanner or the search indexer can hold the
+    file open for a moment and the rename fails with PermissionError: wait and try again."""
+    for attempt in range(1, tries + 1):
+        try:
+            tmp.replace(path)
+            return
+        except PermissionError:
+            if attempt == tries:
+                raise
+            time.sleep(0.1 * attempt)
+
 def save(path, step):
     """Write everything needed to rebuild the model AND to continue training exactly.
     `step` = number of optimizer updates already done."""
@@ -120,7 +132,7 @@ def save(path, step):
     }
     tmp = path.with_suffix(".tmp")
     torch.save(state, tmp)
-    tmp.replace(path)          # atomic: a crash while writing never corrupts the previous file
+    replace_retry(tmp, path)   # atomic: a crash while writing never corrupts the previous file
 
 if ckpt:
     cfg = Config(**ckpt["config"])     # the checkpoint's architecture, not the defaults / command line

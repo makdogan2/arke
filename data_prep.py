@@ -52,16 +52,28 @@ def setup_log(path):
         log.addHandler(h)
     log.setLevel(logging.INFO)
 
+def replace_retry(tmp, path, tries=10):
+    """tmp.replace(path), but on Windows a virus scanner or the search indexer can hold the
+    file open for a moment and the rename fails with PermissionError: wait and try again."""
+    for attempt in range(1, tries + 1):
+        try:
+            tmp.replace(path)
+            return
+        except PermissionError:
+            if attempt == tries:
+                raise
+            time.sleep(0.1 * attempt)
+
 def write_atomic(path, text):
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(text, encoding="utf-8")
-    tmp.replace(path)
+    replace_retry(tmp, path)
 
 def save_npy_atomic(path, arr):
     tmp = path.with_name(path.name + ".tmp")
     with open(tmp, "wb") as f:
         np.save(f, arr)
-    tmp.replace(path)
+    replace_retry(tmp, path)
 
 def check_disk():
     free = shutil.disk_usage(DATA).free / 1e9
@@ -207,7 +219,7 @@ def stage_tokenizer(work, state, tok_path, sample_bytes):
     tok.train_from_iterator((d for src in ("tr", "en") for d in sample(src)), trainer)
     tmp = tok_path.with_name(tok_path.name + ".tmp")
     tok.save(str(tmp))
-    tmp.replace(tok_path)
+    replace_retry(tmp, tok_path)
     log.info(f"tokenizer: saved {tok_path.name} in {time.time() - t:.0f}s")
 
     # how well does it compress each language? (higher chars/token = fewer tokens per sentence)
@@ -278,7 +290,7 @@ def stage_bin(work, state, final, tok_path):
                 f.write(arr.tobytes())
                 n += len(arr)
                 meta["tokens_by_source"][state["shards"][name]["src"]] += len(arr)
-        tmp.replace(out)
+        replace_retry(tmp, out)
         meta[f"{split}_tokens"] = n
         log.info(f"{out.name}: {n / 1e6:,.1f}M tokens ({out.stat().st_size / 1e9:.2f} GB)")
     write_atomic(final / "meta.json", json.dumps(meta, indent=1))

@@ -5,37 +5,26 @@ Her aşamanın sonunda güncellenir.
 
 ## Şu anki aşama
 
-### 1. Gerçek veriyle `data_prep.py` koşusu
-- **Ne:** Wikipedia + FineWeb2-HQ (TR) + FineWeb-Edu (EN) → temizlik → dedup → 16384'lük tokenizer → `data/train.bin`, `data/val.bin`.
-- **Neden:** Model boyutu deneyinde `m` modeli sonda ezberlemeye başladı (best val 3.545, son val 3.569). Darboğaz veri: 51M token var, ~30M'lik bir model ~600M token istiyor.
-- **Kod:** Yeni kod yok, hazır.
-- **Komut:** `.venv\Scripts\python.exe data_prep.py`
-- **Beklenen:** Yaklaşık bir saat; en uzun kısım ~13 parquet dosyasının (~14 GB) indirilmesi (ölçülen hız 11–15 MB/s). Disk ihtiyacı ~24 GB (C:'de ~160 GB boş). GPU kullanmaz.
-- **Kontrol:**
-  - `logs/data_prep.log` son satırı `===== DONE`.
-  - `data/meta.json` içinde `train_tokens` beklenen ~1.1B civarında. Kaynak payları wiki ~%4, tr ~%48, en ~%48 gibi.
-  - Logdaki `chars/token` satırları: TR ve EN birbirine yakın olmalı (smoke testte 3.83 / 3.93).
-- **Kesilirse:** Aynı komut kaldığı yerden devam eder.
-
-## Sıradaki aşamalar
-
 ### 2. Yeni veriyle ilk model (`arke0_web`), 98M
 - **Ne:** `l` boyutu (12 katman, 768 genişlik, 12 head; vocab 16384 ile 97.8M parametre).
 - **Neden bu boyut:** Model boyutu deneyinde `l` (91.5M), `m`'yi az veriyle bile geçti (val 3.365'e karşı 3.545). 33.7M'lik ilk plan Chinchilla'yı fazla katı uyguluyordu.
-- **Önerilen plan C:** Veri hedefini ikiye katlamak (~4.4 GB metin, ~1.1B token) ve ~2.0B token eğitmek (~1.8 epoch). 2.0B / 97.8M ≈ 20 token/parametre, yani Chinchilla dengesi.
+- **Plan C:** ~2.0B token eğitim, veri 1,069M token olduğu için ~1.87 epoch. 2.0B / 97.8M ≈ 20 token/parametre, yani Chinchilla dengesi.
 - **Ölçüldü (27 Ekim):** `l` compile'lı **95k tok/s**, GPU belleği en fazla ~10.8 GB. 2.0B token ≈ 5.9 saat, eval ile **~6.3 saat** saf eğitim.
 - **Oturumlara bölünerek çalışacak:** `--until 08:00` ya da `--hours 3` ile kendisi kaydedip durur. Ctrl+C de kaydedip durur. `--resume` kaldığı adımdan devam eder.
-- **Kod:** `data_prep.py`'de iki sayı: TR ve EN veri hedefleri. Sohbette vereceğim, sen yazacaksın. `data_prep.py` henüz çalışmadığı için şimdi değiştirmenin kaybı yok.
+- **Kod:** Yeni kod gerekmiyor. Ama önerim, eğitime başlamadan önce Aşama 3'ü bitirmek: o zaman TR ve EN loss'u eğitimin ilk adımından itibaren ayrı ayrı loglanır.
 - **Komutlar:**
   - İlk oturum: `.venv\Scripts\python.exe train.py --name arke0_web --n_layer 12 --n_embd 768 --n_head 12 --max-iters 122000 --until 08:00`. 2.0B token / 16,384 ≈ 122,000 adım.
   - Sonraki oturumlar: `.venv\Scripts\python.exe train.py --name arke0_web --resume --hours 3`.
 - **Kontrol:** `runs/arke0_web.json`'da val loss sonda yükselmiyor olmalı (ezberleme yok). `sample.py --name arke0_web` ile TR ve EN metin.
 - **Karşılaştırma:** Token başına loss farklı tokenizer'lar arasında kıyaslanamaz. Arke-0 ile karşılaştırmak için loss'u karakter/token oranına bölüp "karakter başına loss"a çevireceğiz (Arke-0: 1.100).
 
-### 3. Dil başına val loss (yeni modda ilk kod işi)
+## Sıradaki aşamalar
+
+### 3. Dil başına val loss (önerim: 98M eğitiminden önce)
 - **Ne:** Val setini TR ve EN olarak ayrı ölçmek.
 - **Neden:** Hedefimiz "İngilizce Türkçe kadar iyi". Şu an tek bir karışık val sayısı var; hangi dilin geride kaldığını göremiyoruz.
 - **Kod:** `data_prep.py` val'i kaynak başına ayrı dosyalara da yazacak, `train.py` loss'u dil başına raporlayacak. Kodu sohbette vereceğim, sen yazacaksın.
+- **Veri tekrar indirilmez:** `data_prep.py` tekrar çalışınca bütün aşamaları atlar, sadece son aşama yeni kodla `.bin` dosyalarını yazar (~1 dakika).
 
 ### 4. Kendi modelimizi quantize etmek (8 / 4 / 2 bit)
 - **Ne:** `arke0_web`'in linear katman ağırlıklarını 8, 4 ve 2 bite sıkıştırıp geri açmak. Ölçek grup başına (ör. 64 ağırlıkta bir), quantization kodunu kütüphanesiz kendimiz yazacağız.
@@ -59,6 +48,7 @@ Her aşamanın sonunda güncellenir.
 | 25 Ekim | UTF-8 çıktı; resume'da eval/save aralığı (kesintisiz koşuyla birebir aynı) | `a10b0cf` |
 | 27 Ekim | README yeni pipeline'a göre güncellendi | `f12b75e` |
 | 27 Ekim | Oturumlu eğitim: `--hours`, `--until`, güvenli Ctrl+C; her duruşta `runs/` logu güncelleniyor. İlk kez yeni çalışma şekliyle yazıldı (kodu Mehmet yazdı). Test: süreyle durma 723 → resume; Ctrl+C ile 315 → 857 → 1000, üç oturum logda doğru birleşti. | `94a39bb` |
+| 27 Ekim | Gerçek veri: wiki 191 MB + TR 2,102 MB + EN 2,142 MB → **train 1,069M token**, val 10.7M. Kaynaklar (token): wiki %5, tr %46, en %50. Tokenizer 16384: TR 3.88, EN 3.98 karakter/token (eski 8192: 3.32 / 3.34). Dedup: TR 22, EN 482 kopya. Süre ~23 dk (bir `PermissionError` kesintisi dahil). | — (veri git'te değil) |
 
 Daha önce (`main`'de, 17 Ekim): model boyutu argümanları ve `runs/` logu, referans bölümü temizliği, `plot_scaling.py`.
 
@@ -72,5 +62,6 @@ Daha önce (`main`'de, 17 Ekim): model boyutu argümanları ve `runs/` logu, ref
 | 25 Ekim | `triton-windows` 3.7 kuruldu | `torch.compile` için; torch 2.11 ↔ Triton 3.7. |
 | 27 Ekim | Model boyutu deneyi README'ye şimdilik eklenmedi | Eski veriyle yapıldı; yeni veriyle tekrarlanınca anlamlı bir bölüm olur. `runs/` commit dışında kalıyor. |
 | 27 Ekim | Veri hedefi ikiye katlandı: TR 2.1 GB, EN 2.14 GB (toplam ~4.4 GB, ~1.1B token) | 98M'lik model için Chinchilla dengesi (~2.0B token eğitim, ~1.8 epoch). Türkçe HQ veri bol (105 dosya). |
+| 27 Ekim | Dosyalar `replace_retry` ile yerine konuyor (`data_prep.py`, `train.py`) | İlk gerçek koşu 12. dakikada `PermissionError: Access is denied` ile durdu: `state.json.tmp` → `state.json` adı değiştirilirken Windows'ta başka bir program (büyük ihtimalle Defender ya da arama indeksleyicisi) dosyayı bir anlığına açık tutuyordu. Artık kısa bekleyip 10 kez deniyor. Veri kaybı olmadı: eski `state.json` sağlamdı, sadece son shard yeniden işlenecek. |
 | 27 Ekim | Bir sonraki model 98M (`l` boyutu), 33.7M değil | Model boyutu deneyinde büyük model az veriyle bile kazandı. 1B+ sıfırdan eğitim bu kartta pratik değil (1B ≈ 25 gün, 16 GB'a sığmıyor); büyük modeller için yol ince ayar (QLoRA). |
 | 27 Ekim | Yeni çalışma şekli: kodu ben sohbette eksiksiz veririm, sen VS Code'da yazarsın, "commit" deyince commit | Kodu yazarak öğrenmek ve kontrolü elde tutmak. |

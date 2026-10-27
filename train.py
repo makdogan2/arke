@@ -58,6 +58,11 @@ data_dir = ROOT / (ckpt["data"] if ckpt else args.data)
 meta = json.loads((data_dir / "meta.json").read_text(encoding="utf-8"))
 train_data = np.memmap(data_dir / "train.bin", dtype=np.uint16, mode="r")
 val_data   = np.memmap(data_dir / "val.bin",   dtype=np.uint16, mode="r")
+# per-language validation sets from data_prep.py: val_tr.bin, val_en.bin and their characters per token
+val_sources = meta.get("val_sources", {})
+eval_sets = {"train": train_data, "val": val_data}
+for src in val_sources:
+    eval_sets[f"val_{src}"] = np.memmap(data_dir / f"val_{src}.bin", dtype=np.uint16, mode="r")
 tok_file = data_dir / meta["tokenizer"]
 tok = Tokenizer.from_file(str(tok_file))
 
@@ -74,8 +79,7 @@ def get_lr(it):
     ratio = (it - warmup) / (max_iters - warmup)     # cosine decay
     return min_lr + 0.5 * (max_lr - min_lr) * (1 + math.cos(math.pi * ratio))
 
-def get_batch(split):
-    data = train_data if split == "train" else val_data
+def get_batch(data):
     ix = torch.randint(len(data) - cfg.block_size - 1, (batch_size,)).tolist()   # torch RNG: saved in checkpoints
     # one read of block_size+1 tokens per window: x is the window, y the same window shifted by one
     buf = torch.from_numpy(np.stack([data[i:i + cfg.block_size + 1] for i in ix]).astype(np.int64))
@@ -86,14 +90,14 @@ def get_batch(split):
 def estimate_loss():
     model.eval()
     out = {}
-    for split in ("train", "val"):
+    for name, data in eval_sets.items():
         losses = torch.zeros(50)
         for i in range(50):
-            X, Y = get_batch(split)
+            X, Y = get_batch(data)
             with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
                 _, loss = fwd(X, Y)
             losses[i] = loss.item()
-        out[split] = losses.mean().item()
+        out[name] = losses.mean().item()
     model.train()
     return out
 
@@ -240,9 +244,11 @@ for it in range(start_step, max_iters + 1):
 
     if it % eval_every == 0:
         l = estimate_loss()
-        history.append({"step": it, "train": l["train"], "val": l["val"],
-                        "lr": lr, "time": time.time() - t0, "tok_s": tok_s})
-        print(f"step {it:5d} | train {l['train']:.4f} | val {l['val']:.4f} "
+        history.append({"step": it, **l, "lr": lr, "time": time.time() - t0, "tok_s": tok_s})
+        # loss per character: a fair TR vs EN comparison, since a token covers a different amount of text
+        per_lang = "".join(f" | {s} {l['val_' + s] * v['tokens'] / v['chars']:.3f}/ch"
+                           for s, v in val_sources.items())
+        print(f"step {it:5d} | train {l['train']:.4f} | val {l['val']:.4f}{per_lang} "
               f"| lr {lr:.1e} | {tok_s/1e3:5.0f}k tok/s | {time.time()-t0:.0f}s")
         if l["val"] < best_val:
             best_val = l["val"]
@@ -252,7 +258,7 @@ for it in range(start_step, max_iters + 1):
     if it == max_iters:        # the last step only evaluates
         break
 
-    X, Y = get_batch("train")
+    X, Y = get_batch(train_data)
     with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
         _, loss = fwd(X, Y)
     opt.zero_grad(set_to_none=True)

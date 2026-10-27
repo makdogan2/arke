@@ -278,7 +278,8 @@ def stage_tokenize(work, state, tok):
 
 def stage_bin(work, state, final, tok_path):
     names = shard_names(state)
-    meta = dict(tokenizer=tok_path.name, dtype="uint16", vocab_size=Tokenizer.from_file(str(tok_path)).get_vocab_size(),
+    tok = Tokenizer.from_file(str(tok_path))
+    meta = dict(tokenizer=tok_path.name, dtype="uint16", vocab_size=tok.get_vocab_size(),
                 bytes_by_source={s: kept_bytes(state, s) for s in ORDER}, tokens_by_source=Counter())
     for split in ("train", "val"):
         out = final / f"{split}.bin"
@@ -293,6 +294,18 @@ def stage_bin(work, state, final, tok_path):
         replace_retry(tmp, out)
         meta[f"{split}_tokens"] = n
         log.info(f"{out.name}: {n / 1e6:,.1f}M tokens ({out.stat().st_size / 1e9:.2f} GB)")
+
+    # per-language validation: each web source is one language (Wikipedia mixes both, so it stays out)
+    meta["val_sources"] = {}
+    for src in ("tr", "en"):
+        arr = np.concatenate([np.load(work / "tok" / f"{name}.val.npy") for name in shard_names(state, src)])
+        out = final / f"val_{src}.bin"
+        tmp = out.with_name(out.name + ".tmp")
+        arr.tofile(tmp)
+        replace_retry(tmp, out)
+        chars = len(tok.decode(arr.tolist()))          # <|endoftext|> is skipped, the rest is the original text
+        meta["val_sources"][src] = dict(tokens=len(arr), chars=chars)
+        log.info(f"{out.name}: {len(arr) / 1e6:,.1f}M tokens, {chars / len(arr):.2f} chars/token")
     write_atomic(final / "meta.json", json.dumps(meta, indent=1))
     by_src = meta["tokens_by_source"]
     total = sum(by_src.values())

@@ -10,10 +10,10 @@ Her aşamanın sonunda güncellenir.
 - **Neden:** Model boyutu deneyinde `m` modeli sonda ezberlemeye başladı (best val 3.545, son val 3.569). Darboğaz veri: 51M token var, ~30M'lik bir model ~600M token istiyor.
 - **Kod:** Yeni kod yok, hazır.
 - **Komut:** `.venv\Scripts\python.exe data_prep.py`
-- **Beklenen:** Bir saatten kısa; en uzun kısım ~7 parquet dosyasının (~8.5 GB) indirilmesi. Disk ihtiyacı ~15 GB (C:'de ~127 GB boş).
+- **Beklenen:** Yaklaşık bir saat; en uzun kısım ~13 parquet dosyasının (~14 GB) indirilmesi (ölçülen hız 11–15 MB/s). Disk ihtiyacı ~24 GB (C:'de ~160 GB boş). GPU kullanmaz.
 - **Kontrol:**
   - `logs/data_prep.log` son satırı `===== DONE`.
-  - `data/meta.json` içinde `train_tokens` beklenen ~560M civarında. Kaynak payları wiki ~%9, tr ~%45, en ~%46 gibi.
+  - `data/meta.json` içinde `train_tokens` beklenen ~1.1B civarında. Kaynak payları wiki ~%4, tr ~%48, en ~%48 gibi.
   - Logdaki `chars/token` satırları: TR ve EN birbirine yakın olmalı (smoke testte 3.83 / 3.93).
 - **Kesilirse:** Aynı komut kaldığı yerden devam eder.
 
@@ -58,7 +58,7 @@ Her aşamanın sonunda güncellenir.
 | 25 Ekim | `train.bin` + memmap, fused AdamW, `torch.compile` (207k → 251k tok/s) | `db721ad` |
 | 25 Ekim | UTF-8 çıktı; resume'da eval/save aralığı (kesintisiz koşuyla birebir aynı) | `a10b0cf` |
 | 27 Ekim | README yeni pipeline'a göre güncellendi | `f12b75e` |
-| 27 Ekim | Oturumlu eğitim: `--hours`, `--until`, güvenli Ctrl+C; her duruşta `runs/` logu güncelleniyor. İlk kez yeni çalışma şekliyle yazıldı (kodu Mehmet yazdı). Test: süreyle durma 723 → resume; Ctrl+C ile 315 → 857 → 1000, üç oturum logda doğru birleşti. | `d1eb66e` |
+| 27 Ekim | Oturumlu eğitim: `--hours`, `--until`, güvenli Ctrl+C; her duruşta `runs/` logu güncelleniyor. İlk kez yeni çalışma şekliyle yazıldı (kodu Mehmet yazdı). Test: süreyle durma 723 → resume; Ctrl+C ile 315 → 857 → 1000, üç oturum logda doğru birleşti. | `94a39bb` |
 
 Daha önce (`main`'de, 17 Ekim): model boyutu argümanları ve `runs/` logu, referans bölümü temizliği, `plot_scaling.py`.
 
@@ -71,5 +71,6 @@ Daha önce (`main`'de, 17 Ekim): model boyutu argümanları ve `runs/` logu, ref
 | 24 Ekim | Tokenizer yeniden eğitildi, vocab 16384 | İki dil dengeli sıkışsın: smoke testte TR 3.83, EN 3.93 karakter/token (eski 8192'de ikisi de ~3.33). |
 | 25 Ekim | `triton-windows` 3.7 kuruldu | `torch.compile` için; torch 2.11 ↔ Triton 3.7. |
 | 27 Ekim | Model boyutu deneyi README'ye şimdilik eklenmedi | Eski veriyle yapıldı; yeni veriyle tekrarlanınca anlamlı bir bölüm olur. `runs/` commit dışında kalıyor. |
+| 27 Ekim | Veri hedefi ikiye katlandı: TR 2.1 GB, EN 2.14 GB (toplam ~4.4 GB, ~1.1B token) | 98M'lik model için Chinchilla dengesi (~2.0B token eğitim, ~1.8 epoch). Türkçe HQ veri bol (105 dosya). |
 | 27 Ekim | Bir sonraki model 98M (`l` boyutu), 33.7M değil | Model boyutu deneyinde büyük model az veriyle bile kazandı. 1B+ sıfırdan eğitim bu kartta pratik değil (1B ≈ 25 gün, 16 GB'a sığmıyor); büyük modeller için yol ince ayar (QLoRA). |
 | 27 Ekim | Yeni çalışma şekli: kodu ben sohbette eksiksiz veririm, sen VS Code'da yazarsın, "commit" deyince commit | Kodu yazarak öğrenmek ve kontrolü elde tutmak. |

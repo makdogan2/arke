@@ -30,13 +30,13 @@ call the venv interpreter directly, as in the commands below.
 
 ## Data
 
-`data_prep.py` builds a ~2.2 GB corpus, about 50% Turkish and 50% English by bytes:
+`data_prep.py` builds a ~4.4 GB corpus, about 50% Turkish and 50% English by bytes:
 
 | Source | Language | License | Used |
 |---|---|---|---|
 | [Wikipedia](https://huggingface.co/datasets/wikimedia/wikipedia) (20231101) | TR + EN | CC BY-SA 3.0 + GFDL | ~200 MB, from `data_download.py` |
-| [FineWeb2-HQ](https://huggingface.co/datasets/epfml/FineWeb2-HQ) `tur_Latn` | TR | ODC-By 1.0 | ~1.0 GB after filtering |
-| [FineWeb-Edu](https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu) `sample-10BT` | EN | ODC-By 1.0 | ~1.0 GB after filtering |
+| [FineWeb2-HQ](https://huggingface.co/datasets/epfml/FineWeb2-HQ) `tur_Latn` | TR | ODC-By 1.0 | ~2.1 GB after filtering |
+| [FineWeb-Edu](https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu) `sample-10BT` | EN | ODC-By 1.0 | ~2.1 GB after filtering |
 
 The FineWeb datasets are built from Common Crawl and are also subject to its terms of use.
 
@@ -111,5 +111,5 @@ experiments/       learning-phase scripts: char tokenizer, BPE from scratch, att
 - [x] `torch.compile` + fused AdamW: 207k -> 251k tokens/s on a 33.7M model
 - [x] Checkpoints with exact resume
 - [x] Data pipeline: FineWeb2-HQ TR + FineWeb-Edu EN, dedup, 50/50 TR/EN tokenizer (vocab 16384)
-- [ ] Scaling: bigger model trained on the new ~2.2 GB corpus
+- [ ] Scaling: bigger model trained on the new ~4.4 GB corpus (~1.1B tokens)
 - [ ] Arke-1 — a conversational assistant with tool use

@@ -5,7 +5,7 @@ Every stage works in small pieces (one shard per parquet row group) and skips pi
 already on disk, so after a crash or a reboot the same command continues where it stopped.
 Progress goes to logs/data_prep.log.
 
-    .venv\\Scripts\\python.exe data_prep.py           # the real run (~2 GB of new text)
+    .venv\\Scripts\\python.exe data_prep.py           # the real run (~4.2 GB of new text)
     .venv\\Scripts\\python.exe data_prep.py --smoke   # tiny end-to-end run into data/prep_smoke
 """
 import argparse, hashlib, json, logging, os, shutil, sys, time
@@ -26,8 +26,8 @@ WIKI = DATA / "mix.txt"           # the existing Wikipedia corpus (~120 MB TR / 
 
 # bytes of new text kept after filtering; together with Wikipedia the mix is ~50% TR / 50% EN
 SOURCES = {
-    "tr": dict(repo="epfml/FineWeb2-HQ", prefix="tur_Latn/", target=1_000_000_000),
-    "en": dict(repo="HuggingFaceFW/fineweb-edu", prefix="sample/10BT/", target=1_040_000_000),
+    "tr": dict(repo="epfml/FineWeb2-HQ", prefix="tur_Latn/", target=2_100_000_000),
+    "en": dict(repo="HuggingFaceFW/fineweb-edu", prefix="sample/10BT/", target=2_140_000_000),
 }
 ORDER = {"wiki": 0, "tr": 1, "en": 2}
 
@@ -294,7 +294,7 @@ def main():
 
     if args.smoke:
         work = final = DATA / "prep_smoke"
-        scale, wiki_docs, sample_bytes = 0.02, 5000, 10_000_000
+        scale, wiki_docs, sample_bytes = 0.01, 5000, 10_000_000
     else:
         work, final = DATA / "prep", DATA
         scale, wiki_docs, sample_bytes = 1.0, None, TOK_SAMPLE_BYTES

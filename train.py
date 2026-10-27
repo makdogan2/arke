@@ -15,6 +15,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--n_layer", type=int, default=Config.n_layer)
 parser.add_argument("--n_embd",  type=int, default=Config.n_embd)
 parser.add_argument("--n_head",  type=int, default=Config.n_head)
+parser.add_argument("--dropout", type=float, default=Config.dropout,
+                    help="dropout rate; 0 for pretraining on plenty of data (measured in DEFTER.md)")
 parser.add_argument("--name", default="arke0_bpe",
                     help="<name>.pt is the best model, <name>_last.pt the latest state, runs/<name>.json the log")
 parser.add_argument("--data", default="data",
@@ -156,7 +158,7 @@ if ckpt:
     print(f"resumed {ckpt_last.name} at step {start_step} | best val {best_val:.4f}")
 else:
     cfg = Config(vocab_size=meta["vocab_size"], n_layer=args.n_layer,
-                 n_embd=args.n_embd, n_head=args.n_head)
+                 n_embd=args.n_embd, n_head=args.n_head, dropout=args.dropout)
     model = Arke0(cfg).to(device)
     opt = make_optimizer(model)
     start_step, best_val = 0, float("inf")

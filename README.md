@@ -16,6 +16,16 @@ A small GPT — a hand-written transformer, built for learning.
 - Data: mixed Turkish + English Wikipedia (~120 MB TR + ~80 MB EN), shuffled at document level
 - Training: AdamW, linear warmup + cosine decay, bf16 autocast, gradient clipping
 
+## arke0_web
+
+The same architecture, scaled up and trained on the new web corpus (see Data).
+
+- Byte-level BPE tokenizer, vocab 16384, trained on a 50/50 TR/EN sample
+- 12 layers, 12 heads, 768 embedding dim, 256-token context, no dropout
+- 97.8M parameters (85.0M without embeddings)
+- Training: 122,000 steps × 64 × 256 = 2.0B tokens (1.87 epochs of the 1.07B-token corpus,
+  ~20 tokens per parameter), 5 h 47 min on one RTX 5070 Ti at 103k tokens/s, in several sessions
+
 ## Setup
 
 ```
@@ -75,14 +85,47 @@ Arke-0 below was trained with the earlier pipeline (`data_download.py` -> `token
 | Arke-0 (char) | raw | ~10.8M | 5000 | ~3 min | 1.31 / char | 1.31 |
 | Arke-0 (BPE) | raw | 13.88M | 8000 | — | 3.697 / token | 1.107 |
 | Arke-0 (BPE) | cleaned | 13.88M | 8000 | 5 min 45 s | 3.718 / token | 1.100 |
+| arke0_web | web + Wikipedia | 97.8M | 122,000 | 5 h 47 min | 3.161 / token | TR 0.820, EN 0.792 |
 
-Train time is the training loop on an RTX 5070 Ti (bf16, batch 64, 131M tokens, 2.6 epochs).
+Train time is the training loop on an RTX 5070 Ti (bf16, batch 64). The Arke-0 rows saw 131M
+tokens (2.6 epochs of Wikipedia only), arke0_web 2.0B tokens.
 
 On the cleaned corpus (190.3M characters) the BPE tokenizer produces 56.38M tokens, 3.38
 characters/token (raw corpus: 56.9M tokens, 3.34). Val loss per token is not comparable across
 tokenizers, so the last column divides it by characters/token. The BPE models beat the
 character-level one; cleaning barely moves the loss (the validation splits also differ), but it
 removed template junk such as `Ankara (; , ;` from the generated text.
+
+### arke0_web vs Arke-0 on the same text
+
+The per-char numbers in the table above come from different validation sets (Arke-0: Wikipedia,
+arke0_web: web text), so they cannot be compared directly. Here both models read the same
+characters, each through its own tokenizer, scored over every 256-token window:
+
+| Text | Arke-0 (13.9M) | arke0_web (97.8M) | Change |
+|---|---|---|---|
+| Wikipedia, unseen by both models (32 articles, 0.2M chars) | 1.110 / char | **0.854 / char** | −23% |
+| Web TR (`val_tr.bin`, 19.4M chars) | 1.265 / char | **0.820 / char** | −35% |
+| Web EN (`val_en.bin`, 20.8M chars) | 1.233 / char | **0.792 / char** | −36% |
+
+The Wikipedia row is the fair comparison: both models trained on Wikipedia and neither saw these
+articles (they are in both validation splits). Part of the gap on web text is domain: Arke-0 never
+saw web pages and scores 0.12–0.15 worse there than on Wikipedia. The comparison does not
+separate the causes: arke0_web is 7× larger, saw 15× more tokens, and has a different tokenizer
+and corpus.
+
+Training curve: validation loss kept falling until the end, also in the second epoch. The gap
+between train and val loss grew from ~0.02 to ~0.03, a mild sign of memorization that did not
+hurt val loss. The in-training eval samples 50 random batches and moves by ±0.008 between evals,
+which is more than the late-training improvement (~0.002 per 1000 steps), so `arke0_web.pt`
+(the "best" checkpoint, step 118k) is a noisy pick: on the full validation set the last
+checkpoint (step 122k) is slightly better, 3.1606 vs 3.1636.
+
+Samples: Turkish and English grammar is good (suffixes such as *değiştirilmiştir*, *anılmaktadır*
+are correct) and a paragraph stays on topic, but facts are invented, phrases repeat, and the model
+sometimes drifts into runs of spaces and line breaks. These most likely come from the Wikipedia
+part of the corpus, which still has 614 double spaces per million characters after cleaning
+(web text: 0–5).
 
 ## Repository layout
 
@@ -111,5 +154,6 @@ experiments/       learning-phase scripts: char tokenizer, BPE from scratch, att
 - [x] `torch.compile` + fused AdamW: 207k -> 251k tokens/s on a 33.7M model
 - [x] Checkpoints with exact resume
 - [x] Data pipeline: FineWeb2-HQ TR + FineWeb-Edu EN, dedup, 50/50 TR/EN tokenizer (vocab 16384)
-- [ ] Scaling: bigger model trained on the new ~4.4 GB corpus (~1.1B tokens)
+- [x] Scaling: arke0_web, 97.8M parameters trained on the new ~4.4 GB corpus (2.0B tokens)
+- [ ] Quantization from scratch: 8, 4 and 2-bit weights
 - [ ] Arke-1 — a conversational assistant with tool use

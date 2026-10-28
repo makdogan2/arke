@@ -51,4 +51,6 @@ AI is my collaborator, not my replacement: I keep the understanding and the cont
   the architecture from the checkpoint, not from defaults.
 - `experiments/`: scripts from the learning phase (char tokenizer, BPE demos, attention). Not
   part of the pipeline; nothing imports them.
-- Current model: `arke0_bpe.pt`, 13.88M params, 8000 steps (~6 min), val loss 3.718/token on the cleaned corpus.
+- Current model: `arke0_web_last.pt` (step 122k; slightly better on the full val set than the
+  "best" `arke0_web.pt`, step 118k), 97.8M params, 2.0B tokens, 5 h 47 min. Full val: 3.1606/token,
+  TR 0.820/ch, EN 0.792/ch. Previous model: `arke0_bpe.pt`, 13.88M params, 3.718/token, 1.100/ch.

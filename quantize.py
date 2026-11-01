@@ -7,6 +7,7 @@ import argparse, json, sys, time
 from pathlib import Path
 import numpy as np
 import torch
+from tokenizers import Tokenizer
 from model import Config, Arke0
 
 ROOT = Path(__file__).parent
@@ -19,6 +20,8 @@ parser.add_argument("--embedding", action="store_true",
                     help="also quantize the token embedding (it is the output layer too: weight tying)")
 parser.add_argument("--scheme", choices=["sym", "asym"], default="sym",
                     help="sym: one scale per group (absmax); asym: a scale and a minimum per group (min-max)")
+parser.add_argument("--sample", action="store_true",
+                    help="generate text from fixed prompts and a fixed seed instead of measuring the loss")
 args = parser.parse_args()
 device = "cuda"
 
@@ -85,6 +88,17 @@ def full_loss(data, batch=256):
         total += loss.item() * len(starts)
     return total / n
 
+tok = Tokenizer.from_file(str(ROOT / "data" / ckpt["tokenizer"]))
+PROMPTS = ["Türkiye, ", "Bilim insanları ", "The history of ", "Scientists have "]
+
+@torch.no_grad()
+def sample(prompt, n=100, seed=1337):
+    """Same seed for every bit width: the random draws match, so only the weights differ."""
+    torch.manual_seed(seed)
+    idx = torch.tensor([tok.encode(prompt).ids], dtype=torch.long, device=device)
+    out = model.generate(idx, n, temperature=0.8, top_k=50)[0].tolist()
+    return tok.decode(out, skip_special_tokens=False).replace("<|endoftext|>", "\n\n<|endoftext|>\n\n")
+
 ref = None
 for bits in args.bits:
     t0 = time.time()
@@ -97,6 +111,12 @@ for bits in args.bits:
     else:
         bits_per_weight = 16
     size_mb = (n_quant * bits_per_weight + (n_total - n_quant) * 16) / 8 / 1e6
+    if args.sample:
+        print(f"{'=' * 25} {bits} bit | {size_mb:.1f} MB {'=' * 25}")
+        for p in PROMPTS:
+            print(sample(p))
+            print("-" * 60)
+        continue
     loss = {s: full_loss(d) for s, d in val_sets.items()}
     ref = ref if ref is not None else loss["val"]
     print(f"{bits:2} bit | {bits_per_weight:5.2f} bit/weight | {size_mb:6.1f} MB | val {loss['val']:.4f} "

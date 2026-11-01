@@ -5,7 +5,7 @@ Her aşamanın sonunda güncellenir.
 
 ## Şu anki aşama
 
-> **Kaldığımız yer (28 Ekim):** Aşama 2 bitti: `arke0_web` eğitildi, ölçüldü, README'ye yazıldı (commit bekliyor). Sıradaki: Aşama 4, quantization. İlk karar: hangi checkpoint quantize edilecek (`arke0_web.pt` 118k mı, tam val'de biraz daha iyi olan `arke0_web_last.pt` 122k mı).
+> **Kaldığımız yer (1 Kasım):** Aşama 4 sürüyor. `quantize.py` yazıldı (`af82df5`): sahte quantization ile 8/4/2 bit, simetrik ve asimetrik ölçüldü (sonuçlar aşağıda). 1 Kasım'da adil karşılaştırma (sym grup 32), embedding'li ölçüm ve her bitte metin örnekleri de yapıldı (`quantize.py --sample`). Sıradaki: gerçek paketlenmiş dosya (4 bitlik iki değer bir baytta, diske yaz, geri yükle, aynı loss), sonra README bölümü.
 
 ### 4. Kendi modelimizi quantize etmek (8 / 4 / 2 bit)
 - **Ne:** `arke0_web`'in linear katman ağırlıklarını 8, 4 ve 2 bite sıkıştırıp geri açmak. Ölçek grup başına (ör. 64 ağırlıkta bir), quantization kodunu kütüphanesiz kendimiz yazacağız.
@@ -13,6 +13,24 @@ Her aşamanın sonunda güncellenir.
 - **Ölçülecek:** Her bit sayısında dosya boyutu (98M: bf16 196 MB, int8 ~98 MB, int4 ~49 MB, int2 ~24 MB, ölçekler hariç) ve val loss'taki artış. Bir de üretilen metin örnekleri.
 - **Ölçüm yöntemi:** val loss'u tam val setinde, sabit pencerelerle ölç (eğitimdeki 50 rastgele batch ±0.008 oynuyor; 8 bitin farkı bundan küçük olabilir). Referans (bf16, `arke0_web_last.pt`): val 3.1606, TR 0.8203/ch, EN 0.7916/ch.
 - **Önkoşul:** Aşama 2'deki eğitilmiş model (hazır).
+- **Şu ana kadar (31 Ekim, `arke0_web_last.pt`, grup 64, sadece blokların linear ağırlıkları: 84.9M, %86.8; embedding bf16 kalıyor):**
+
+  | Bit | sym bit/w | sym val (fark) | asym bit/w | asym val (fark) | asym TR /ch | asym EN /ch |
+  |---|---|---|---|---|---|---|
+  | 16 | 16 | 3.1606 | 16 | 3.1606 | 0.8203 | 0.7916 |
+  | 8 | 8.25 | +0.0001 | 8.50 | +0.0001 | 0.8204 | 0.7916 |
+  | 4 | 4.25 | +0.0350 | 4.50 | +0.0240 | 0.8268 | 0.7973 |
+  | 2 | 2.25 | +6.3249 (9.49) | 2.50 | +1.4196 (4.58) | 1.2046 | 1.1305 |
+
+  - 8 bit kayıpsız. 4 bitte asym kaybı ~%31 azaltıyor ama 0.25 bit/w fazla harcıyor.
+  - Aynı bütçede (4.50 bit/w, 1 Kasım): sym grup 32 +0.0276 (TR 0.8277, EN 0.7982/ch), asym grup 64 +0.0240. asym yine önde ama fark küçük: sym 64 → asym 64 kazancının (0.0110) ~2/3'ü (0.0074) sadece küçük gruptan, ~1/3'ü (0.0036) şemadan. 2 bitte sym grup 32 de çöküyor (8.51).
+  - 2 bit sym çöküyor (rastgele tahmin ln 16384 = 9.70): `qmax = 1` ile seviyeler {−1, 0, +1}, |w| > max/2 olmayan her ağırlık sıfır oluyor (`quant_demo.py`: 8 sayıdan 6'sı). asym 4 seviyenin dördünü kullanıyor ve çökmüyor, ama +1.42 hâlâ büyük (eğitimde val 4.58'in altına 2,000. adımda inilmişti).
+  - Boyut (hesap, ölçekler dahil): 195.6 → 116.0 / 73.5 / 52.3 MB (asym 8/4/2). Embedding'in 25.7 MB'ı bf16 kaldığı için 2 bitte dosyanın yarısı o.
+  - Embedding de quantize edilince (asym, grup 64, `--embedding`, 97.5M, %99.7; 1 Kasım): 8 bit 104.2 MB +0.0002; 4 bit 55.4 MB +0.0520 (TR 0.8340, EN 0.8045/ch); 2 bit 31.0 MB +3.0006 (6.16). 4 bitte embedding (12.6M) tek başına +0.028 ekliyor, yani blokların 84.9M ağırlığının toplamı (+0.024) kadar: ağırlık başına ~8 kat hassas. Muhtemel neden weight tying (aynı matris çıkış katmanı da); bu ayrıştırılmadı.
+  - Aynı boyutta 4 bit 2 bitten çok iyi: embedding dahil 4 bit 55.4 MB val 3.2125, embedding hariç 2 bit 52.3 MB val 4.5801.
+  - Metin örnekleri (1 Kasım, `quantize.py --scheme asym --sample`: 4 prompt, 100 token, her prompt'ta seed 1337, yani her bitte aynı rastgele çekilişler). 8 bit: dört metinden üçü 16 bitle birebir aynı, dördüncüsü sadece son birkaç token'da ayrılıyor. 4 bit: metinler erken ayrılıyor (ilk cümlede ya da hemen) ama TR ve EN dil bilgisi 16 bit kadar düzgün; TR örneğinde kelime tekrarı döngüsü ("Kürtlerle, Kürtlerle"), tek örnek olduğu için genelleme yok. 2 bit: okunamaz; noktalama ve harf yığını, arada kısa Türkçe parçalar ("Hangi şartlar altında").
+  - 2 bit asym (52.3 MB), aynı web val'de Arke-0'dan (13.88M, 55 MB dosya) iyi: TR 1.265 → 1.205/ch, EN 1.233 → 1.131/ch. Arke-0 web görmediği için farkın bir kısmı alan farkı.
+  - `.pt` dosyası neden 1,174 MB (ölçüldü): fp32 ağırlıklar 391 MB + AdamW'nin iki momenti 782 MB. Tablodaki "16 bit, 195.6 MB" sadece ağırlıkların bf16 boyutu.
 
 ## Sıradaki aşamalar
 
@@ -40,7 +58,8 @@ Her aşamanın sonunda güncellenir.
 | 27 Ekim | `replace_retry`: Windows'un bir anlığına kilitlediği dosyalarda yeniden deneme (`data_prep.py`, `train.py`). Test: hedef dosya açık tutulurken rename bekleyip başardı. | `62ba405` |
 | 27 Ekim | Aşama 3, dil başına val loss: `data_prep.py` `val_tr.bin` (5.0M token, 3.88 karakter/token) ve `val_en.bin` (5.2M, 3.97) yazıyor, `meta.json`'a karakter sayılarını ekliyor. `train.py` her eval'de TR ve EN loss'u karakter başına da gösteriyor. Test (17M model, 300 adım, gerçek veri): adım 0'da 9.75 ≈ ln(16384); adım 300'de TR 1.777/ch, EN 1.605/ch. | `2d52a29` |
 | 27 Ekim | `train.py --dropout`; 98M için dropout 0 ve block_size 256 seçildi (Kararlar'da). | `18aaa1e` |
-| 28 Ekim | Aşama 2, `arke0_web` (97.8M, 12 katman, 768, 12 head, block 256, dropout 0): 122,000 adım, 2.0B token (1.87 epoch), 5 sa 47 dk, 103k tok/s, 27 Ekim 20:52'den itibaren iki oturumda. **Eğri:** val sona kadar düştü, 2. epoch'ta da; train–val farkı ~0.02'den ~0.03'e çıktı (hafif ezberleme, val'e zararı yok). **Tam val'de (sabit pencereler):** son checkpoint 122k val 3.1606, TR 0.8203/ch, EN 0.7916/ch; "best" 118k 3.1636, yani best seçimi gürültüden. **Arke-0 ile aynı metinde:** iki modelin de görmediği 32 Wikipedia makalesinde 1.110 → **0.854/ch (−%23)**; web TR 1.265 → 0.820, web EN 1.233 → 0.792 (−%35; bir kısmı alan farkı, Arke-0 web görmedi). **Örnekler:** TR ve EN dil bilgisi iyi, bilgi uyduruyor, tekrar ediyor, bazen boşluk döngüsüne giriyor (büyük ihtimalle wiki'deki boşluk dizilerinden). README'ye yazıldı. | — (commit bekliyor) |
+| 28 Ekim | Aşama 2, `arke0_web` (97.8M, 12 katman, 768, 12 head, block 256, dropout 0): 122,000 adım, 2.0B token (1.87 epoch), 5 sa 47 dk, 103k tok/s, 27 Ekim 20:52'den itibaren iki oturumda. **Eğri:** val sona kadar düştü, 2. epoch'ta da; train–val farkı ~0.02'den ~0.03'e çıktı (hafif ezberleme, val'e zararı yok). **Tam val'de (sabit pencereler):** son checkpoint 122k val 3.1606, TR 0.8203/ch, EN 0.7916/ch; "best" 118k 3.1636, yani best seçimi gürültüden. **Arke-0 ile aynı metinde:** iki modelin de görmediği 32 Wikipedia makalesinde 1.110 → **0.854/ch (−%23)**; web TR 1.265 → 0.820, web EN 1.233 → 0.792 (−%35; bir kısmı alan farkı, Arke-0 web görmedi). **Örnekler:** TR ve EN dil bilgisi iyi, bilgi uyduruyor, tekrar ediyor, bazen boşluk döngüsüne giriyor (büyük ihtimalle wiki'deki boşluk dizilerinden). README'ye yazıldı. | `f7f0dda` |
+| 31 Ekim | Aşama 4, ilk adım: `quantize.py` (sahte quantization, grup başına ölçek, `--scheme sym/asym`, tam val/TR/EN ölçümü) ve `experiments/quant_demo.py`. Sonuçlar Aşama 4'ün altında. | `af82df5` |
 
 Daha önce (`main`'de, 17 Ekim): model boyutu argümanları ve `runs/` logu, referans bölümü temizliği, `plot_scaling.py`.
 
@@ -61,3 +80,5 @@ Daha önce (`main`'de, 17 Ekim): model boyutu argümanları ve `runs/` logu, ref
 | 27 Ekim | block_size 256 kaldı (512 yerine) | Belgelerin %81'i 256 token'dan uzun, yani denemeye değerdi. 98M, dropout 0, aynı token bütçesi (64×256 = 32×512): 6000 adımda eğitim val'i eşitlendi (3.8730'a karşı 3.8735; adım 1000'de fark 0.23'tü). Aynı 512'lik pencerelerde adil ölçümde 256 hâlâ önde: TR 3.858'e karşı 3.926, EN 3.785'e karşı 3.839. 512 pencerenin ikinci yarısında bile (2 kat bağlam) geride. 512 ayrıca %5 yavaş. |
 | 28 Ekim | Arke-0 ile karşılaştırma aynı metinde, karakter başına | Token başına loss tokenizer'a bağlı; farklı val setlerindeki karakter başına sayılar da metin türüne bağlı (Arke-0 kendi wiki val'inde 1.100, web'de 1.23–1.27). Adil set: hem Arke-0'ın val'ine (mix.txt'nin son %10'u) hem arke0_web'in val'ine (%1 hash) düşen 32 wiki makalesi. Arke-0'ın eski val'i kullanılamazdı: makalelerin %99'u arke0_web'in eğitim verisinde. Yöntemin kontrolü: Arke-0 bu sette 1.110, README'deki kendi sonucu 1.100. |
 | 28 Ekim | Örnekler `arke0_web_last.pt` (122k) ile | Tam val'de "best" (118k) checkpoint'ten biraz daha iyi (3.1606'ya karşı 3.1636). |
+| 28 Ekim | Quantization da `arke0_web_last.pt` ile | Aynı neden; referans sayılar zaten onun. |
+| 31 Ekim | Ölçüm sahte quantization ile (yuvarla, hemen geri aç) | Model koduna dokunmadan sadece yuvarlama hatasını ölçmek için. Gerçek boyut ancak paketlenmiş dosyayla ölçülür; o sonraki adım. |

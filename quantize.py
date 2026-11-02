@@ -1,7 +1,8 @@
 """Quantize a model's weights to 8/4/2 bits and measure the loss on the full validation sets.
 
 Fake quantization: each chosen weight is rounded to `bits` bits and right away dequantized back
-to float, so the model runs unchanged and only the rounding error is left. Packed files come later.
+to float, so the model runs unchanged and only the rounding error is left.
+--packed (4-bit asym) really packs the weights, two per byte with fp16 scales and minimums, and unpacks them.
 """
 import argparse, json, sys, time
 from pathlib import Path
@@ -22,7 +23,11 @@ parser.add_argument("--scheme", choices=["sym", "asym"], default="sym",
                     help="sym: one scale per group (absmax); asym: a scale and a minimum per group (min-max)")
 parser.add_argument("--sample", action="store_true",
                     help="generate text from fixed prompts and a fixed seed instead of measuring the loss")
+parser.add_argument("--packed", action="store_true",
+                    help="4-bit asym only: pack the weights two per byte with fp16 scales and minimums, then unpack")
 args = parser.parse_args()
+if args.packed and (args.scheme != "asym" or any(b not in (4, 16) for b in args.bits)):
+    parser.error("--packed only does 4-bit asym: use --scheme asym --bits 16 4")
 device = "cuda"
 
 def quantize(w, bits):
@@ -54,6 +59,26 @@ def fake_quantize(w, bits, group, scheme):
     else:
         G_hat = dequantize_asym(*quantize_asym(G, bits))
     return G_hat.reshape(w.shape).to(w.dtype)
+
+def pack4(q):
+    """q: uint8 values in 0..15, even count. Element 2i goes to the low 4 bits of byte i, 2i+1 to the high 4 bits."""
+    q = q.reshape(-1)
+    assert q.numel() % 2 == 0 and int(q.max()) <= 15
+    return q[0::2] | (q[1::2] << 4)
+
+def unpack4(packed):
+    low = packed & 0x0F                                     # 0x0F = 0000 1111: keep the low 4 bits
+    high = packed >> 4                                      # shift the high 4 bits down
+    return torch.stack([low, high], dim=-1).reshape(-1)     # interleave back: low0, high0, low1, high1, ...
+
+def pack_weight(w, group):
+    """4-bit asym: everything a file needs to rebuild w. Scale and minimum are stored as fp16."""
+    q, scale, low = quantize_asym(w.float().reshape(-1, group), 4)
+    return {"q": pack4(q), "scale": scale.half(), "low": low.half(), "shape": tuple(w.shape)}
+
+def unpack_weight(p, group):
+    q = unpack4(p["q"]).reshape(-1, group)
+    return dequantize_asym(q, p["scale"].float(), p["low"].float()).reshape(p["shape"])
 
 ckpt = torch.load(ROOT / f"{args.name}.pt", map_location="cpu", weights_only=False)
 cfg = Config(**ckpt["config"])
@@ -103,7 +128,14 @@ ref = None
 for bits in args.bits:
     t0 = time.time()
     model.load_state_dict(ckpt["model"])                      # start from the original weights every time
-    if bits < 16:
+    if bits < 16 and args.packed:
+        packed = {n: pack_weight(params[n], args.group) for n in chosen}
+        n_bytes = sum(t.numel() * t.element_size() for p in packed.values() for t in (p["q"], p["scale"], p["low"]))
+        with torch.no_grad():
+            for n in chosen:
+                params[n].copy_(unpack_weight(packed[n], args.group))
+        bits_per_weight = n_bytes * 8 / n_quant                  # measured from the packed tensors, not computed
+    elif bits < 16:
         with torch.no_grad():
             for n in chosen:
                 params[n].copy_(fake_quantize(params[n], bits, args.group, args.scheme))

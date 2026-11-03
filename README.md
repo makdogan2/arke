@@ -80,8 +80,10 @@ Work is saved in small shards, so after a crash the same command continues where
 - `train.py` options: model size (`--n_layer --n_embd --n_head`), `--data <folder>`, `--max-iters`,
   `--eval-every`, `--save-every`, `--no-compile`.
 - A checkpoint stores the model config, optimizer state, schedule, data folder and random number
-  generator states: `sample.py` rebuilds the exact architecture, and `--resume` reproduces the
-  losses of an uninterrupted run.
+  generator states: `sample.py` rebuilds the exact architecture, and `--resume` continues with the
+  same training batches as an uninterrupted run. The losses match only closely, not exactly: GPU
+  kernels are not bit-exact, so even two uninterrupted runs differ by ~0.0001 after 100 steps, and the
+  gap can grow to ~0.008 around the learning-rate peak before it shrinks again.
 
 Arke-0 below was trained with the earlier pipeline (`data_download.py` -> `tokenizer_bpe.py` ->
 `data/bpe.pt`, vocab 8192), which the current `train.py` no longer reads.
@@ -127,7 +129,9 @@ between train and val loss grew from ~0.02 to ~0.03, a mild sign of memorization
 hurt val loss. The in-training eval samples 50 random batches and moves by ±0.008 between evals,
 which is more than the late-training improvement (~0.002 per 1000 steps), so `arke0_web.pt`
 (the "best" checkpoint, step 118k) is a noisy pick: on the full validation set the last
-checkpoint (step 122k) is slightly better, 3.1606 vs 3.1636.
+checkpoint (step 122k) is slightly better, 3.1606 vs 3.1636. `train.py` now scores the same 3,200 evenly spaced
+windows at every eval: on these two checkpoints random windows ranked them right in 67% of pairs,
+fixed windows in 100%.
 
 Samples: Turkish and English grammar is good (suffixes such as *değiştirilmiştir*, *anılmaktadır*
 are correct) and a paragraph stays on topic, but facts are invented, phrases repeat, and the model

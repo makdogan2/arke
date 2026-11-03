@@ -5,7 +5,7 @@ Her aşamanın sonunda güncellenir.
 
 ## Şu anki aşama
 
-> **Kaldığımız yer (3 Kasım):** Aşama 4'ün kodu bitti. 2 Kasım'da 4 bit paketleme (`b1c0e43`), 3 Kasım'da `--save` / `--load`: 4 bitlik model diskte 73.6 MB'lık tek bir dosya, sadece o dosyadan yüklenip ölçülüyor (val 3.1847). Aynı gün bütün `torch.load` çağrıları `weights_only=True`'ya geçti. 3 Kasım'ın kodunu Mehmet'in isteğiyle Claude yazdı (`e679471`). Yine 3 Kasım'da README'ye "Quantization" bölümü yazıldı, roadmap'te işaretlendi: **Aşama 4 bitti.** Sıradaki: "Daha sonra" listesinden Mehmet seçecek.
+> **Kaldığımız yer (3 Kasım):** Aşama 4'ün kodu bitti. 2 Kasım'da 4 bit paketleme (`b1c0e43`), 3 Kasım'da `--save` / `--load`: 4 bitlik model diskte 73.6 MB'lık tek bir dosya, sadece o dosyadan yüklenip ölçülüyor (val 3.1847). Aynı gün bütün `torch.load` çağrıları `weights_only=True`'ya geçti. 3 Kasım'ın kodunu Mehmet'in isteğiyle Claude yazdı (`e679471`). Yine 3 Kasım'da README'ye "Quantization" bölümü yazıldı, roadmap'te işaretlendi: **Aşama 4 bitti.** Sonra (3 Kasım) eval gürültüsü: `train.py` artık her eval'de aynı sabit pencerelere bakıyor (kodu Mehmet yazdı, ölçüm aşağıda, commit bekliyor). Sıradaki: `textclean.py`, art arda boşluklar.
 
 ### 4. Kendi modelimizi quantize etmek (8 / 4 / 2 bit)
 - **Ne:** `arke0_web`'in linear katman ağırlıklarını 8, 4 ve 2 bite sıkıştırıp geri açmak. Ölçek grup başına (ör. 64 ağırlıkta bir), quantization kodunu kütüphanesiz kendimiz yazacağız.
@@ -38,13 +38,14 @@ Her aşamanın sonunda güncellenir.
 
 ### Daha sonra (sıra değişebilir)
 - `textclean.py`: art arda boşlukları teke indir. Wikipedia'da temizlikten sonra 1M karakterde 614 çift boşluk ve 22 tane 5+ boşluk dizisi kalıyor (web: 0–5). Model bunu öğrenip bazen boşluk/satır sonu döngüsüne giriyor. Etkisi için veri ve eğitim yeniden gerekir.
-- Eval gürültüsü: `estimate_loss` her seferinde 50 rastgele batch alıyor, ardışık eval'ler ±0.008 oynuyor; eğitimin sonundaki gerçek iyileşmeden (~0.002 / 1000 adım) büyük. "Best checkpoint" bu yüzden şansa kalıyor. Sabit pencereler ya da daha fazla batch.
 - `sample.py`: sabit seed (aynı çıktıyı tekrar üretebilmek için), TR ile dengeli sayıda EN prompt, ekrana checkpoint'in kendi val'ini yaz (şu an `_last` için de `best_val` yazıyor).
 - `generate` `<|endoftext|>` görünce dursun (şu an belge bitince yeni bir belgeye geçip devam ediyor).
 - Sequence length warmup: eğitime 256 token bağlamla başlayıp sonra 512'ye geçmek. 512'nin başta yavaş öğrenmesini (aşağıdaki block_size kararı) atlatmanın bir yolu; ayrı bir deney.
 - Türkçeye uygun pre-tokenizer (ekleri daha iyi bölmek için). Ayrı bir tokenizer deneyi.
 - Yeni veriyle model boyutu deneyi (xs/s/m/l) ve README'ye ölçekleme bölümü (`plot_scaling.py` hazır).
 - Arke-1: sohbet edebilen asistan (roadmap'teki son madde).
+- GPU belirlenimsizliği: aynı seed'le iki kesintisiz koşu bile birebir aynı değil (eski kodda da: 100. adımda train 7.6411 / 7.6410). Fark lr tepesinde büyüyor (200. adımda val 6.9281 / 6.9206), sonra küçülüyor (300. adımda 0.0006 içinde). Muhtemel kaynak: embedding ve attention backward'ındaki atomik toplamalar. `torch.use_deterministic_algorithms(True)` ile ölçülebilir; hız maliyeti ölçülmeli.
+- `get_lr`: `--max-iters` warmup'a (200) eşitse sıfıra bölme (3 Kasım'da test sırasında görüldü). Küçük düzeltme.
 
 ## Biten aşamalar
 
@@ -65,7 +66,8 @@ Her aşamanın sonunda güncellenir.
 | 1 Kasım | Aşama 4: `quantize.py --sample` (her bitte aynı seed'le metin örnekleri); sym grup 32 ve embedding'li ölçümler. | `01e4fb7` |
 | 2 Kasım | Aşama 4: 4 bit paketleme, `quantize.py --packed` ve `experiments/pack_demo.py`. 4.50 bit/w baytlardan ölçüldü, val sahte quantization'la aynı (3.1846). | `b1c0e43` |
 | 3 Kasım | Aşama 4: `quantize.py --save` / `--load`; 4 bitlik model diskte 73.6 MB'lık tek dosya, sadece ondan yüklenince val 3.1847. Bütün `torch.load` çağrıları `weights_only=True`. Kodu Mehmet'in isteğiyle Claude yazdı. | `e679471` |
-| 3 Kasım | Aşama 4 bitti: README'ye "Quantization" bölümü (8/4/2 bit tablosu, sym/asym, embedding, paketleme, 73.6 MB dosya, `weights_only=True`); kullanım komutları, dosya listesi ve roadmap güncellendi. | (commit bekliyor) |
+| 3 Kasım | Aşama 4 bitti: README'ye "Quantization" bölümü (8/4/2 bit tablosu, sym/asym, embedding, paketleme, 73.6 MB dosya, `weights_only=True`); kullanım komutları, dosya listesi ve roadmap güncellendi. | `7a25668` |
+| 3 Kasım | Eval gürültüsü: `estimate_loss` her eval'de aynı 3,200 eşit aralıklı pencereye bakıyor (`fixed_windows`, `get_batch(data, ix)`); eval artık RNG tüketmiyor. **Ölçüm** (118k ve 122k checkpoint, tam val farkı −0.0030): rastgele eval tek başına std 0.008, iki checkpoint farkının std'si 0.011, 122k'yı doğru sıralama %67 (100 çift); sabit pencerelerde fark std 0.0006, doğru sıralama %100 (10 alt küme). Sabit alt kümenin mutlak değeri tam val'den sapabiliyor (alt kümeler arası std 0.0055), ama her eval'de aynı sapma. Test: 17M model 300 adım çalıştı; resume'lu koşu kesintisize yakın ama birebir değil, sebebi GPU (Daha sonra'da). Kodu Mehmet yazdı. | (commit bekliyor) |
 
 Daha önce (`main`'de, 17 Ekim): model boyutu argümanları ve `runs/` logu, referans bölümü temizliği, `plot_scaling.py`.
 

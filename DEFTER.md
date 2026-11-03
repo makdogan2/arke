@@ -5,7 +5,7 @@ Her aşamanın sonunda güncellenir.
 
 ## Şu anki aşama
 
-> **Kaldığımız yer (2 Kasım):** Aşama 4 sürüyor. Sahte quantization ölçümleri bitti (sonuçlar aşağıda). 2 Kasım'da 4 bit paketleme yazıldı (`b1c0e43`): `pack4`/`unpack4` iki değeri bir bayta koyuyor, `quantize.py --packed` ağırlıkları gerçekten paketleyip açıyor ve aynı loss'u veriyor. Sıradaki: `--save` / `--load` (paketi ve bf16 kalan katmanları diske yaz, dosyanın gerçek boyutunu ölç, sadece o dosyadan yükleyip aynı loss'u al), sonra README bölümü.
+> **Kaldığımız yer (3 Kasım):** Aşama 4'ün kodu bitti. 2 Kasım'da 4 bit paketleme (`b1c0e43`), 3 Kasım'da `--save` / `--load`: 4 bitlik model diskte 73.6 MB'lık tek bir dosya, sadece o dosyadan yüklenip ölçülüyor (val 3.1847). Aynı gün bütün `torch.load` çağrıları `weights_only=True`'ya geçti. 3 Kasım'ın kodunu Mehmet'in isteğiyle Claude yazdı (`e679471`). Sıradaki: Aşama 4'ün README bölümü.
 
 ### 4. Kendi modelimizi quantize etmek (8 / 4 / 2 bit)
 - **Ne:** `arke0_web`'in linear katman ağırlıklarını 8, 4 ve 2 bite sıkıştırıp geri açmak. Ölçek grup başına (ör. 64 ağırlıkta bir), quantization kodunu kütüphanesiz kendimiz yazacağız.
@@ -31,7 +31,8 @@ Her aşamanın sonunda güncellenir.
   - Metin örnekleri (1 Kasım, `quantize.py --scheme asym --sample`: 4 prompt, 100 token, her prompt'ta seed 1337, yani her bitte aynı rastgele çekilişler). 8 bit: dört metinden üçü 16 bitle birebir aynı, dördüncüsü sadece son birkaç token'da ayrılıyor. 4 bit: metinler erken ayrılıyor (ilk cümlede ya da hemen) ama TR ve EN dil bilgisi 16 bit kadar düzgün; TR örneğinde kelime tekrarı döngüsü ("Kürtlerle, Kürtlerle"), tek örnek olduğu için genelleme yok. 2 bit: okunamaz; noktalama ve harf yığını, arada kısa Türkçe parçalar ("Hangi şartlar altında").
   - 2 bit asym (52.3 MB), aynı web val'de Arke-0'dan (13.88M, 55 MB dosya) iyi: TR 1.265 → 1.205/ch, EN 1.233 → 1.131/ch. Arke-0 web görmediği için farkın bir kısmı alan farkı.
   - `.pt` dosyası neden 1,174 MB (ölçüldü): fp32 ağırlıklar 391 MB + AdamW'nin iki momenti 782 MB. Tablodaki "16 bit, 195.6 MB" sadece ağırlıkların bf16 boyutu.
-  - Gerçek paketleme (2 Kasım, `quantize.py --scheme asym --bits 16 4 --packed`, `experiments/pack_demo.py`): 4 bitlik iki değer bir baytta (2i alttaki 4 bitte, 2i+1 üstteki), grup başına fp16 ölçek ve minimum. Paketlenmiş tensörlerin baytlarından ölçülen **4.50 bit/w, 73.5 MB**: formülle aynı. val **3.1846** (TR 0.8268, EN 0.7973/ch), sahte quantization'la aynı. Paketle → aç 4 bitlik değerleri birebir geri veriyor; fp16 ölçek/minimum ağırlıkları en fazla 0.0007 kaydırıyor (bir quantization adımının %1.1'i), loss'ta 4 ondalıkta görünmüyor. Henüz diske yazılmadı.
+  - Gerçek paketleme (2 Kasım, `quantize.py --scheme asym --bits 16 4 --packed`, `experiments/pack_demo.py`): 4 bitlik iki değer bir baytta (2i alttaki 4 bitte, 2i+1 üstteki), grup başına fp16 ölçek ve minimum. Paketlenmiş tensörlerin baytlarından ölçülen **4.50 bit/w, 73.5 MB**: formülle aynı. val **3.1846** (TR 0.8268, EN 0.7973/ch), sahte quantization'la aynı. Paketle → aç 4 bitlik değerleri birebir geri veriyor; fp16 ölçek/minimum ağırlıkları en fazla 0.0007 kaydırıyor (bir quantization adımının %1.1'i), loss'ta 4 ondalıkta görünmüyor.
+  - Diskteki dosya (3 Kasım, `quantize.py --scheme asym --bits 16 4 --packed --save arke0_web_q4.pt`, sonra `quantize.py --load arke0_web_q4.pt`): **73,569,713 bayt (73.6 MB)**; tensör verisi 73,503,744 bayt, pickle ve zip kayıtları 66 KB (%0.09). İçinde config, tokenizer adı, grup boyutu, 48 paketli matris ve bf16 kalan 76 tensör (embedding bir kez: weight tying). 1,174 MB'lık checkpoint'in **16'da biri**. Sadece dosyadan yüklenince val **3.1847** (TR 0.8269, EN 0.7973/ch), bellekteki `--packed`'den +0.0001. Dosyadan açılan 4 bitlik ağırlıklar bellektekiyle birebir aynı; tek fark kalan katmanların bf16 olması (en fazla %0.39 göreli yuvarlama). Metin örnekleri (`--load ... --sample`) üretiliyor; TR örneğinde 4 bitteki "Kürtlerle" döngüsü yine var.
 
 ## Sıradaki aşamalar
 
@@ -63,6 +64,7 @@ Her aşamanın sonunda güncellenir.
 | 31 Ekim | Aşama 4, ilk adım: `quantize.py` (sahte quantization, grup başına ölçek, `--scheme sym/asym`, tam val/TR/EN ölçümü) ve `experiments/quant_demo.py`. Sonuçlar Aşama 4'ün altında. | `af82df5` |
 | 1 Kasım | Aşama 4: `quantize.py --sample` (her bitte aynı seed'le metin örnekleri); sym grup 32 ve embedding'li ölçümler. | `01e4fb7` |
 | 2 Kasım | Aşama 4: 4 bit paketleme, `quantize.py --packed` ve `experiments/pack_demo.py`. 4.50 bit/w baytlardan ölçüldü, val sahte quantization'la aynı (3.1846). | `b1c0e43` |
+| 3 Kasım | Aşama 4: `quantize.py --save` / `--load`; 4 bitlik model diskte 73.6 MB'lık tek dosya, sadece ondan yüklenince val 3.1847. Bütün `torch.load` çağrıları `weights_only=True`. Kodu Mehmet'in isteğiyle Claude yazdı. | `e679471` |
 
 Daha önce (`main`'de, 17 Ekim): model boyutu argümanları ve `runs/` logu, referans bölümü temizliği, `plot_scaling.py`.
 
@@ -86,3 +88,5 @@ Daha önce (`main`'de, 17 Ekim): model boyutu argümanları ve `runs/` logu, ref
 | 28 Ekim | Quantization da `arke0_web_last.pt` ile | Aynı neden; referans sayılar zaten onun. |
 | 31 Ekim | Ölçüm sahte quantization ile (yuvarla, hemen geri aç) | Model koduna dokunmadan sadece yuvarlama hatasını ölçmek için. Gerçek boyut ancak paketlenmiş dosyayla ölçülür; o sonraki adım. |
 | 2 Kasım | Paketlemede ölçek ve minimum fp16 (bf16 değil); paketleme sadece 4 bit asym | Boyut hesabı zaten 16 bit varsayıyordu. fp16'nın kesri 10 bit (bf16 7) ve en küçük ölçek (0.0011) fp16 aralığına rahat sığıyor. 4 bit, aynı boyutta 2 bitten çok iyi olduğu için (yukarıda) hedef format; 8 bit zaten bir bayt. |
+| 3 Kasım | 4 bitlik dosya `torch.save` ile, okuması `weights_only=True` ile (safetensors değil, şimdilik) | Bildiğimiz yol; şekil ve config ayrıca metadata'ya yazılmadan saklanıyor. pickle'ın riskini (dosya açılırken kod çalıştırma) `weights_only=True` kapatıyor: sadece tensör, sözlük, liste, sayı ve metin kurulabiliyor. `--save` dosyayı yazdıktan sonra bu modda açıp deniyor. safetensors (hiç pickle yok, GGUF'a daha yakın) ayrı bir adım olabilir. |
+| 3 Kasım | Bütün `torch.load` çağrıları `weights_only=True` (`quantize.py`, `sample.py`, `train.py`, `explore_batch.py`, `experiments/quant_demo.py`) | Mehmet'in isteği: güvenlik her zaman göz önünde. Diskteki 15 `.pt` dosyasının hepsi bu modda açıldı (test edildi); `sample.py`, `explore_batch.py`, `quant_demo.py` çalıştırıldı. `train.py --resume` ayrıca koşturulmadı, ama okuduğu `_last.pt` dosyaları bu modda açılıyor. |

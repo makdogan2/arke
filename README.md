@@ -65,7 +65,15 @@ Work is saved in small shards, so after a crash the same command continues where
 .venv\Scripts\python.exe train.py --name arke1 --resume   # continue an interrupted run
 .venv\Scripts\python.exe sample.py --name arke1     # generate text from the checkpoint
 .venv\Scripts\python.exe -m unittest test_clean     # tests for the cleaning rules
+.venv\Scripts\python.exe quantize.py --scheme asym  # fake quantization at 16/8/4/2 bits -> loss table
+.venv\Scripts\python.exe quantize.py --scheme asym --bits 16 4 --packed --save arke0_web_q4.pt
+.venv\Scripts\python.exe quantize.py --load arke0_web_q4.pt   # measure the 4-bit file alone
 ```
+
+- `quantize.py` options:
+  - `--name` picks the checkpoint (default `arke0_web_last`).
+  - `--embedding` also quantizes the token embedding.
+  - `--sample` generates text instead of measuring the loss.
 
 - `data_prep.py --smoke` runs the whole pipeline on ~20 MB per source into `data/prep_smoke/`
   in a few minutes; progress goes to `logs/data_prep.log`.
@@ -127,6 +135,97 @@ sometimes drifts into runs of spaces and line breaks. These most likely come fro
 part of the corpus, which still has 614 double spaces per million characters after cleaning
 (web text: 0–5).
 
+## Quantization
+
+`quantize.py` makes `arke0_web_last.pt` smaller with code written from scratch, without a
+quantization library. It splits the weights into groups of 64, gives each group its own scale, and
+rounds every weight to an integer. The loss is measured on the full validation sets: every 256-token
+window is scored, so random sampling adds no noise.
+
+Only the linear weights of the 12 blocks are quantized. That is 84.9M of the 97.8M parameters
+(86.8%). The token embedding, LayerNorms and biases stay bf16.
+
+There are two schemes:
+- **sym (absmax):** each group maps to −qmax … +qmax with one fp16 scale.
+- **asym (min-max):** each group maps its [min, max] onto 0 … 2^bits − 1. It stores an fp16 scale and
+  an fp16 minimum, which costs 0.25 bit/weight more at group size 64.
+
+| Bits | sym bit/weight | sym val | asym bit/weight | asym val | asym TR / char | asym EN / char | asym size |
+|---|---|---|---|---|---|---|---|
+| 16 (bf16) | 16 | 3.1606 | 16 | 3.1606 | 0.8203 | 0.7916 | 195.6 MB |
+| 8 | 8.25 | 3.1607 | 8.50 | 3.1607 | 0.8204 | 0.7916 | 116.0 MB |
+| 4 | 4.25 | 3.1956 | 4.50 | **3.1846** | 0.8268 | 0.7973 | **73.5 MB** |
+| 2 | 2.25 | 9.49 | 2.50 | 4.58 | 1.2046 | 1.1305 | 52.3 MB |
+
+The val columns are loss per token. Sizes include the scales, the minimums and the bf16 parts.
+
+- **8 bits loses nothing measurable:** the loss rises by 0.0001.
+- **4 bits:** the loss rises by 0.024 with asym and 0.035 with sym. Part of asym's advantage comes
+  from storing more numbers per group. With groups of 32, sym also costs 4.50 bit/weight, and it
+  reaches +0.0276. So of the 0.0110 gap between sym and asym at group 64, about 0.0074 comes from
+  the smaller groups and only 0.0036 from the scheme.
+- **2 bits sym collapses:** val 9.49, close to random guessing (ln 16384 = 9.70). With `qmax = 1` the
+  only levels are −1, 0 and +1, so every weight smaller than half of its group's maximum becomes 0.
+  In `experiments/quant_demo.py`, 6 of 8 sample weights become 0. asym uses all four levels and
+  does not collapse, but 4.58 is still a large loss: training got below it at step 2,000.
+- **The embedding is far more sensitive.** With `--embedding` the embedding is quantized too: at
+  4 bits the file is 55.4 MB and the loss rises by 0.052. The 12.6M embedding weights add +0.028 on
+  their own, as much as the 84.9M block weights, so each embedding weight is about 8× more
+  sensitive. Weight tying is the likely cause, since the same matrix is also the output layer. This
+  was not tested separately.
+- **At the same size, 4 bits beats 2 bits:**
+
+  | Setup | Size | Val |
+  |---|---|---|
+  | 4-bit with the embedding quantized | 55.4 MB | 3.2125 |
+  | 2-bit with the embedding left bf16 | 52.3 MB | 4.5801 |
+
+- **Generated text:** `--sample` uses the same prompts and seed at every bit width, so only the
+  weights differ.
+  - 8 bits: three of the four texts match 16 bits word for word, and the fourth differs only in its
+    last few tokens.
+  - 4 bits: the texts diverge early, within the first sentence or right after it, but Turkish and
+    English grammar is as good as at 16 bits.
+  - 2 bits: unreadable.
+
+### Real 4-bit packing
+
+Fake quantization rounds the weights and turns them right back into floats, so the model in memory
+does not get smaller. `--packed` does it for real with 4-bit asym:
+- Two 4-bit values share one byte: element 2i goes in the low 4 bits and element 2i+1 in the high
+  4 bits.
+- Every group of 64 weights also stores an fp16 scale and an fp16 minimum.
+
+Counted from the bytes of the packed tensors, this takes **4.50 bit/weight and 73.5 MB**, the same as
+the formula. The val loss matches fake quantization at 3.1846. Unpacking returns the exact 4-bit
+values; storing the scale and minimum in fp16 moves a weight by at most 0.0007 (1.1% of one
+quantization step).
+
+`--save` writes the packed model to one file. `--load` rebuilds the model from that file alone,
+without the original checkpoint:
+
+| File | Size on disk | Val | TR / char | EN / char |
+|---|---|---|---|---|
+| `arke0_web_last.pt`: training checkpoint | 1,174 MB | 3.1606 | 0.8203 | 0.7916 |
+| `arke0_web_q4.pt`: 4-bit asym | **73.6 MB** | 3.1847 | 0.8269 | 0.7973 |
+
+The checkpoint is 16× larger, but 782 MB of it is the AdamW state that resuming training needs. The
+fp32 weights are another 391 MB. Measured against bf16 weights alone (195.6 MB), the 4-bit file is
+2.7× smaller.
+
+On disk the file holds:
+- the config, tokenizer name and group size
+- 48 packed matrices
+- 76 bf16 tensors
+- 66 KB of pickle and zip overhead (0.09%)
+
+The tied embedding is written once. Loading from the file adds 0.0001 to the loss, because the parts
+that are not quantized are stored as bf16.
+
+Every script opens `.pt` files with `torch.load(..., weights_only=True)`. In this mode only
+tensors, dicts, lists, numbers and strings can come out of a file, so opening a downloaded file
+cannot run code.
+
 ## Repository layout
 
 ```
@@ -137,10 +236,11 @@ test_clean.py      tests for textclean.py
 model.py           Config dataclass + transformer (Arke0)
 train.py           training loop: memmap data, torch.compile, checkpoints + resume
 sample.py          text generation
+quantize.py        quantization from scratch: 8/4/2-bit loss table, 4-bit packing, --save / --load
 plot_scaling.py    plots the model size experiment from runs/*.json
 count_junk.py      measures leftover junk (CSS, category lines, references) in the corpus
 tokenizer_bpe.py   earlier pipeline: BPE tokenizer + data/bpe.pt (vocab 8192)
-experiments/       learning-phase scripts: char tokenizer, BPE from scratch, attention demo
+experiments/       learning-phase scripts: char tokenizer, BPE from scratch, attention, quantization and packing demos
 ```
 
 ## Roadmap
@@ -155,5 +255,6 @@ experiments/       learning-phase scripts: char tokenizer, BPE from scratch, att
 - [x] Checkpoints with exact resume
 - [x] Data pipeline: FineWeb2-HQ TR + FineWeb-Edu EN, dedup, 50/50 TR/EN tokenizer (vocab 16384)
 - [x] Scaling: arke0_web, 97.8M parameters trained on the new ~4.4 GB corpus (2.0B tokens)
-- [ ] Quantization from scratch: 8, 4 and 2-bit weights
+- [x] Quantization from scratch: 8, 4 and 2-bit weights
+  - [x] Real 4-bit packing and a standalone file: 1,174 MB checkpoint -> 73.6 MB, val +0.024
 - [ ] Arke-1 — a conversational assistant with tool use

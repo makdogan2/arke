@@ -5,7 +5,7 @@ Her aşamanın sonunda güncellenir.
 
 ## Şu anki aşama
 
-> **Kaldığımız yer (3 Kasım):** Aşama 4'ün kodu bitti. 2 Kasım'da 4 bit paketleme (`b1c0e43`), 3 Kasım'da `--save` / `--load`: 4 bitlik model diskte 73.6 MB'lık tek bir dosya, sadece o dosyadan yüklenip ölçülüyor (val 3.1847). Aynı gün bütün `torch.load` çağrıları `weights_only=True`'ya geçti. 3 Kasım'ın kodunu Mehmet'in isteğiyle Claude yazdı (`e679471`). Sıradaki: Aşama 4'ün README bölümü.
+> **Kaldığımız yer (3 Kasım):** Aşama 4'ün kodu bitti. 2 Kasım'da 4 bit paketleme (`b1c0e43`), 3 Kasım'da `--save` / `--load`: 4 bitlik model diskte 73.6 MB'lık tek bir dosya, sadece o dosyadan yüklenip ölçülüyor (val 3.1847). Aynı gün bütün `torch.load` çağrıları `weights_only=True`'ya geçti. 3 Kasım'ın kodunu Mehmet'in isteğiyle Claude yazdı (`e679471`). Yine 3 Kasım'da README'ye "Quantization" bölümü yazıldı, roadmap'te işaretlendi: **Aşama 4 bitti.** Sıradaki: "Daha sonra" listesinden Mehmet seçecek.
 
 ### 4. Kendi modelimizi quantize etmek (8 / 4 / 2 bit)
 - **Ne:** `arke0_web`'in linear katman ağırlıklarını 8, 4 ve 2 bite sıkıştırıp geri açmak. Ölçek grup başına (ör. 64 ağırlıkta bir), quantization kodunu kütüphanesiz kendimiz yazacağız.
@@ -65,6 +65,7 @@ Her aşamanın sonunda güncellenir.
 | 1 Kasım | Aşama 4: `quantize.py --sample` (her bitte aynı seed'le metin örnekleri); sym grup 32 ve embedding'li ölçümler. | `01e4fb7` |
 | 2 Kasım | Aşama 4: 4 bit paketleme, `quantize.py --packed` ve `experiments/pack_demo.py`. 4.50 bit/w baytlardan ölçüldü, val sahte quantization'la aynı (3.1846). | `b1c0e43` |
 | 3 Kasım | Aşama 4: `quantize.py --save` / `--load`; 4 bitlik model diskte 73.6 MB'lık tek dosya, sadece ondan yüklenince val 3.1847. Bütün `torch.load` çağrıları `weights_only=True`. Kodu Mehmet'in isteğiyle Claude yazdı. | `e679471` |
+| 3 Kasım | Aşama 4 bitti: README'ye "Quantization" bölümü (8/4/2 bit tablosu, sym/asym, embedding, paketleme, 73.6 MB dosya, `weights_only=True`); kullanım komutları, dosya listesi ve roadmap güncellendi. | (commit bekliyor) |
 
 Daha önce (`main`'de, 17 Ekim): model boyutu argümanları ve `runs/` logu, referans bölümü temizliği, `plot_scaling.py`.
 

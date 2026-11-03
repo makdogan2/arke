@@ -20,7 +20,7 @@ for bits in (8, 4, 2):
     print(f"        w_hat {[round(x, 3) for x in w_hat.tolist()]} | mean |error| {(w - w_hat).abs().mean():.4f}")
 
 # --- part 2: a real weight matrix, one scale for the whole matrix vs one per group ---
-ckpt = torch.load("arke0_web_last.pt", map_location="cpu", weights_only=False)
+ckpt = torch.load("arke0_web_last.pt", map_location="cpu", weights_only=True)
 W = ckpt["model"]["blocks.0.attn.qkv.weight"].float()     # (2304, 768)
 print(f"\nblocks.0.attn.qkv.weight {tuple(W.shape)} | std {W.std():.4f} | max |w| {W.abs().max():.4f}")
 for bits in (8, 4, 2):

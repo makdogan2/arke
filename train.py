@@ -49,7 +49,7 @@ ckpt_best = ROOT / f"{args.name}.pt"
 ckpt_last = ROOT / f"{args.name}_last.pt"
 # load to CPU: RNG states must stay CPU tensors; weights and optimizer state
 # are copied to the GPU by load_state_dict
-ckpt = torch.load(ckpt_last, map_location="cpu", weights_only=False) if args.resume else None
+ckpt = torch.load(ckpt_last, map_location="cpu", weights_only=True) if args.resume else None
 
 def rel(path, base):
     """Path as stored in checkpoints: relative, so the repo can move."""

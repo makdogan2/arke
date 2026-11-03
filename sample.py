@@ -15,7 +15,7 @@ device = ("cuda" if torch.cuda.is_available()
           else "mps" if torch.backends.mps.is_available()
           else "cpu")
 
-ckpt = torch.load(CKPT, map_location=device, weights_only=False)
+ckpt = torch.load(CKPT, map_location=device, weights_only=True)
 
 # Rebuild the exact architecture the checkpoint was trained with
 cfg = Config(**ckpt["config"])

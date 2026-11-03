@@ -4,7 +4,7 @@ from tokenizers import Tokenizer
 
 ROOT = Path(__file__).parent
 
-d = torch.load(ROOT / "data" / "bpe.pt", weights_only=False)
+d = torch.load(ROOT / "data" / "bpe.pt", weights_only=True)
 train_data = d["train"]
 tok = Tokenizer.from_file(str(ROOT / "data" / "bpe_8192.json"))
 

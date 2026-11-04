@@ -1,5 +1,5 @@
 import unittest
-from textclean import EOT, clean, is_repetitive, reject_reason, strip_reference_sections
+from textclean import EOT, clean, is_repetitive, normalize_whitespace, reject_reason, strip_reference_sections
 
 BODY_TR = ("Ankara, Türkiye'nin başkentidir. Şehir, İç Anadolu Bölgesi'nde yer alır.\n"
            "Nüfusu yaklaşık beş milyondur ve ülkenin ikinci büyük şehridir.")
@@ -30,6 +30,34 @@ class TestStripReferenceSections(unittest.TestCase):
     def test_clean_strips_reference_section(self):
         text = BODY_TR + "\n\nKaynakça\nKaynak bir\nKaynak iki"
         self.assertEqual(clean(text), BODY_TR)
+
+
+class TestNormalizeWhitespace(unittest.TestCase):
+    def test_double_space(self):
+        self.assertEqual(normalize_whitespace("Adjei-Yeboah  was"), "Adjei-Yeboah was")
+
+    def test_list_bullet_leftovers(self):
+        # Wikipedia list items lost their "*" and kept the space after it
+        text = "Eserleri \n\n Rûh ve Bekâ-yı Rûh\n Dini Dersler"
+        self.assertEqual(normalize_whitespace(text), "Eserleri\n\nRûh ve Bekâ-yı Rûh\nDini Dersler")
+
+    def test_nbsp_and_tab(self):
+        self.assertEqual(normalize_whitespace("14 g/kg\tve"), "14 g/kg ve")
+
+    def test_zero_width(self):
+        self.assertEqual(normalize_whitespace("tarihleri ​​arasında"), "tarihleri arasında")
+
+    def test_blank_lines(self):
+        # lines with only spaces or tabs become empty, then at most one empty line is left
+        self.assertEqual(normalize_whitespace("Bir.\n \n\t\n\nİki."), "Bir.\n\nİki.")
+
+    def test_paragraphs_kept(self):
+        text = BODY_TR + "\n\n" + BODY_EN
+        self.assertEqual(normalize_whitespace(text), text)
+
+    def test_clean_after_cuts(self):
+        # removing the empty parentheses leaves two spaces; clean() runs the rule last
+        self.assertEqual(clean("Ankara  ( ; , )  şehri."), "Ankara şehri.")
 
 
 class TestIsRepetitive(unittest.TestCase):

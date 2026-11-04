@@ -315,17 +315,23 @@ def stage_bin(work, state, final, tok_path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--smoke", action="store_true", help="tiny end-to-end run (~20 MB per source) into data/prep_smoke")
+    parser.add_argument("--out", help="full run into data/<out> (work files in data/<out>/prep) instead of data/, "
+                                      "e.g. v2 after changing the cleaning rules; train with --data data/<out>")
     args = parser.parse_args()
+    if args.smoke and args.out:
+        parser.error("--smoke writes to data/prep_smoke: no --out")
 
     if args.smoke:
         work = final = DATA / "prep_smoke"
         scale, wiki_docs, sample_bytes = 0.01, 5000, 10_000_000
     else:
-        work, final = DATA / "prep", DATA
+        final = DATA / args.out if args.out else DATA
+        work = final / "prep"
         scale, wiki_docs, sample_bytes = 1.0, None, TOK_SAMPLE_BYTES
     work.mkdir(parents=True, exist_ok=True)
     tok_path = final / f"bpe_{VOCAB_SIZE}.json"
-    setup_log(ROOT / "logs" / ("data_prep_smoke.log" if args.smoke else "data_prep.log"))
+    run_name = "smoke" if args.smoke else args.out
+    setup_log(ROOT / "logs" / (f"data_prep_{run_name}.log" if run_name else "data_prep.log"))
 
     t0 = time.time()
     log.info(f"===== start ({'smoke' if args.smoke else 'full'}), {WORKERS} workers, disk free {check_disk():.0f} GB")

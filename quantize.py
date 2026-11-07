@@ -28,6 +28,7 @@ parser.add_argument("--packed", action="store_true",
                     help="4-bit asym only: pack the weights two per byte with fp16 scales and minimums, then unpack")
 parser.add_argument("--save", help="with --packed: write the packed model to this file, e.g. arke0_web_q4.pt")
 parser.add_argument("--load", help="measure a file written by --save, without the original checkpoint")
+parser.add_argument("--data", default="data", help="folder with the val sets and meta.json, e.g. data/v2")
 args = parser.parse_args()
 if args.load and (args.packed or args.save or args.embedding):
     parser.error("--load takes everything from the file: no --packed, --save or --embedding")
@@ -120,9 +121,10 @@ def load_packed(f):
         for n, p in f["packed"].items():
             params[n].copy_(unpack_weight(p, f["group"]))
 
-meta = json.loads((ROOT / "data" / "meta.json").read_text(encoding="utf-8"))
+data_dir = ROOT / args.data
+meta = json.loads((data_dir / "meta.json").read_text(encoding="utf-8"))
 chars_per_token = {s: v["chars"] / v["tokens"] for s, v in meta["val_sources"].items()}
-val_sets = {s: np.memmap(ROOT / "data" / f"{s}.bin", dtype=np.uint16, mode="r") for s in ("val", "val_tr", "val_en")}
+val_sets = {s: np.memmap(data_dir / f"{s}.bin", dtype=np.uint16, mode="r") for s in ("val", "val_tr", "val_en")}
 
 @torch.no_grad()
 def full_loss(data, batch=256):
@@ -138,7 +140,11 @@ def full_loss(data, batch=256):
         total += loss.item() * len(starts)
     return total / n
 
-tok = Tokenizer.from_file(str(ROOT / "data" / ckpt["tokenizer"]))
+tok_file = ROOT / "data" / ckpt["tokenizer"]
+tok = Tokenizer.from_file(str(tok_file))
+# the val files are token ids: they only mean something to a model that speaks the same tokenizer
+if tok_file.read_bytes() != (data_dir / meta["tokenizer"]).read_bytes():
+    sys.exit(f"{args.data} was tokenized with {meta['tokenizer']}, not the model's {ckpt['tokenizer']}")
 PROMPTS = ["Türkiye, ", "Bilim insanları ", "The history of ", "Scientists have "]
 
 @torch.no_grad()

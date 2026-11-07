@@ -26,6 +26,12 @@ The same architecture, scaled up and trained on the new web corpus (see Data).
 - Training: 122,000 steps × 64 × 256 = 2.0B tokens (1.87 epochs of the 1.07B-token corpus,
   ~20 tokens per parameter), 5 h 47 min on one RTX 5070 Ti at 103k tokens/s, in several sessions
 
+## arke0_clean (current model)
+
+arke0_web's exact recipe, trained again on the same corpus with its whitespace normalized
+(`data/v2`, see [Whitespace cleaning](#whitespace-cleaning)). Only the data differs: same
+architecture, tokenizer, steps and schedule. 5 h 57 min at 95–100k tokens/s, in two sessions.
+
 ## Setup
 
 ```
@@ -52,7 +58,7 @@ The FineWeb datasets are built from Common Crawl and are also subject to its ter
 
 Steps: download parquet files, clean and filter every document (`textclean.py`: template leftovers,
 reference sections, date-list pages, pages under 500 characters, repetitive pages with the
-Gopher duplicate-line thresholds), drop exact duplicates, train a byte-level BPE tokenizer
+Gopher duplicate-line thresholds, whitespace normalized), drop exact duplicates, train a byte-level BPE tokenizer
 (vocab 16384) on a 50/50 TR/EN sample, tokenize, and send 1% of the documents to validation.
 Work is saved in small shards, so after a crash the same command continues where it stopped.
 
@@ -68,10 +74,14 @@ Work is saved in small shards, so after a crash the same command continues where
 .venv\Scripts\python.exe quantize.py --scheme asym  # fake quantization at 16/8/4/2 bits -> loss table
 .venv\Scripts\python.exe quantize.py --scheme asym --bits 16 4 --packed --save arke0_web_q4.pt
 .venv\Scripts\python.exe quantize.py --load arke0_web_q4.pt   # measure the 4-bit file alone
+.venv\Scripts\python.exe quantize.py --name arke0_clean_last --bits 16 --data data/v2   # full val loss
+.venv\Scripts\python.exe sample_stats.py            # whitespace the cleaning removes, in 500 samples per model
 ```
 
 - `quantize.py` options:
-  - `--name` picks the checkpoint (default `arke0_web_last`).
+  - `--name` picks the checkpoint (default `arke0_web_last`, the model the quantization results are for).
+  - `--data` picks the folder with the validation sets (default `data`). It stops if the model's
+    tokenizer differs from the one the data was tokenized with.
   - `--embedding` also quantizes the token embedding.
   - `--sample` generates text instead of measuring the loss.
 
@@ -96,9 +106,11 @@ Arke-0 below was trained with the earlier pipeline (`data_download.py` -> `token
 | Arke-0 (BPE) | raw | 13.88M | 8000 | — | 3.697 / token | 1.107 |
 | Arke-0 (BPE) | cleaned | 13.88M | 8000 | 5 min 45 s | 3.718 / token | 1.100 |
 | arke0_web | web + Wikipedia | 97.8M | 122,000 | 5 h 47 min | 3.161 / token | TR 0.820, EN 0.792 |
+| arke0_clean | same, whitespace normalized | 97.8M | 122,000 | 5 h 57 min | 3.159 / token | TR 0.820, EN 0.791 |
 
 Train time is the training loop on an RTX 5070 Ti (bf16, batch 64). The Arke-0 rows saw 131M
-tokens (2.6 epochs of Wikipedia only), arke0_web 2.0B tokens.
+tokens (2.6 epochs of Wikipedia only), arke0_web and arke0_clean 2.0B tokens. arke0_clean is
+scored on the cleaned validation set; arke0_web on it: 3.161 as well (see Whitespace cleaning).
 
 On the cleaned corpus (190.3M characters) the BPE tokenizer produces 56.38M tokens, 3.38
 characters/token (raw corpus: 56.9M tokens, 3.34). Val loss per token is not comparable across
@@ -135,14 +147,42 @@ fixed windows in 100%.
 
 Samples: Turkish and English grammar is good (suffixes such as *değiştirilmiştir*, *anılmaktadır*
 are correct) and a paragraph stays on topic, but facts are invented, phrases repeat, and the model
-sometimes drifts into runs of spaces and line breaks. These most likely come from the Wikipedia
-part of the corpus, which still has 614 double spaces per million characters after cleaning
-(web text: 0–5).
+sometimes drifts into runs of spaces and line breaks. These most likely came from the Wikipedia
+part of the corpus, which still had 614 double spaces per million characters after cleaning
+(web text: 0–5). arke0_clean fixes this (next section).
+
+### Whitespace cleaning
+
+`textclean.normalize_whitespace` is now the last cleaning step. It removes zero-width characters,
+turns tabs, non-breaking spaces and other Unicode spaces into one plain space, strips spaces at the
+start and end of lines, and keeps at most one empty line in a row. In a sample of 1M characters,
+Wikipedia had 1,303 lines starting with a space (43% of articles, left over from removed list
+markers), 676 ending with one and 348 double spaces; the web text had almost none. After the
+rule, every pattern is at 0 per million characters. The data was tokenized with the same
+tokenizer, so the old model can be scored on the new validation set and only the data changes.
+
+| Model | Trained on | Full val (cleaned) | TR / char | EN / char | Samples with cleaned-away whitespace | Longest whitespace run |
+|---|---|---|---|---|---|---|
+| arke0_web | original data | 3.1612 | 0.8204 | 0.7918 | 9 / 500 (1.8%) | 45 characters |
+| arke0_clean | cleaned data | 3.1593 | 0.8202 | 0.7912 | **0 / 500** | 2 (`\n\n`) |
+
+- **The loss does not move.** −0.0019 is less than the gap between two checkpoints of one run
+  (118k vs 122k: 0.0030). Whitespace is a small part of the text, and the cleaned validation set no
+  longer contains the runs the old model was trained to predict.
+- **The generated text does change.** `sample_stats.py` generates 500 samples of 256 tokens per
+  model, starting from `<|endoftext|>` with no prompt (temperature 0.8, top-k 50, same seeds). A
+  sample counts if `normalize_whitespace` would change any of its documents. arke0_web writes such
+  whitespace in 9 samples, one of them a 45-character loop of `" \n"`, the removed-list-marker
+  pattern from Wikipedia. arke0_clean writes none. If both models did it equally often, all 9 would
+  land on one model with probability (1/2)^9 ≈ 0.002.
+- **The check itself:** on the first 2M validation tokens, the rule flags 282 of 2,284 original
+  documents (12.3%) and 0 of 2,290 cleaned ones.
 
 ## Quantization
 
 `quantize.py` makes `arke0_web_last.pt` smaller with code written from scratch, without a
-quantization library. It splits the weights into groups of 64, gives each group its own scale, and
+quantization library. (All numbers in this section are for arke0_web, measured before
+arke0_clean existed.) It splits the weights into groups of 64, gives each group its own scale, and
 rounds every weight to an integer. The loss is measured on the full validation sets: every 256-token
 window is scored, so random sampling adds no noise.
 
@@ -241,6 +281,7 @@ model.py           Config dataclass + transformer (Arke0)
 train.py           training loop: memmap data, torch.compile, checkpoints + resume
 sample.py          text generation
 quantize.py        quantization from scratch: 8/4/2-bit loss table, 4-bit packing, --save / --load
+sample_stats.py    counts cleaned-away whitespace in generated samples, compares checkpoints
 plot_scaling.py    plots the model size experiment from runs/*.json
 count_junk.py      measures leftover junk (CSS, category lines, references) in the corpus
 tokenizer_bpe.py   earlier pipeline: BPE tokenizer + data/bpe.pt (vocab 8192)
@@ -261,4 +302,5 @@ experiments/       learning-phase scripts: char tokenizer, BPE from scratch, att
 - [x] Scaling: arke0_web, 97.8M parameters trained on the new ~4.4 GB corpus (2.0B tokens)
 - [x] Quantization from scratch: 8, 4 and 2-bit weights
   - [x] Real 4-bit packing and a standalone file: 1,174 MB checkpoint -> 73.6 MB, val +0.024
+- [x] Whitespace cleaning: arke0_clean, same loss, no more whitespace loops (0/500 samples vs 9/500)
 - [ ] Arke-1 — a conversational assistant with tool use

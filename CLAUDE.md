@@ -41,7 +41,10 @@ AI is my collaborator, not my replacement: I keep the understanding and the cont
 - `data_prep.py`: Wikipedia (`data/mix.txt`) + FineWeb2-HQ TR + FineWeb-Edu EN, ~50/50 TR/EN.
   Resumable (shards in `data/prep/`), log in `logs/data_prep.log`. Writes `data/train.bin`,
   `data/val.bin` (uint16), `data/meta.json` and the tokenizer `data/bpe_16384.json`.
-  `--smoke` does a tiny run into `data/prep_smoke/`.
+  `--smoke` does a tiny run into `data/prep_smoke/`. `--out v2` writes into `data/v2/` instead.
+- Current data: `data/v2/` (since 2026-11-04: same sources, whitespace normalized by
+  `textclean.normalize_whitespace`, tokenized with the same `bpe_16384.json` as `data/`).
+  `data/` is the pre-cleaning version that `arke0_web` was trained on.
 - `train.py --data <folder>` reads those files with memmap; `--resume` continues from `<name>_last.pt`.
   `torch.compile` needs `triton-windows` (installed); `--no-compile` turns it off.
 - Old pipeline (`data_download.py` -> `tokenizer_bpe.py` -> `data/bpe.pt`, vocab 8192) is what
@@ -51,6 +54,11 @@ AI is my collaborator, not my replacement: I keep the understanding and the cont
   the architecture from the checkpoint, not from defaults.
 - `experiments/`: scripts from the learning phase (char tokenizer, BPE demos, attention). Not
   part of the pipeline; nothing imports them.
-- Current model: `arke0_web_last.pt` (step 122k; slightly better on the full val set than the
-  "best" `arke0_web.pt`, step 118k), 97.8M params, 2.0B tokens, 5 h 47 min. Full val: 3.1606/token,
-  TR 0.820/ch, EN 0.792/ch. Previous model: `arke0_bpe.pt`, 13.88M params, 3.718/token, 1.100/ch.
+- Measuring: `quantize.py --name <ckpt> --bits 16 --data data/v2` gives the full val loss (TR/EN
+  per char); `sample_stats.py` counts whitespace the cleaning removes in 500 samples per model.
+- Current model: `arke0_clean_last.pt` (`arke0_web`'s recipe on `data/v2`; step 122k, also the
+  best checkpoint), 97.8M params, 2.0B tokens, 5 h 57 min. Full v2 val: 3.1593/token, TR 0.8202/ch,
+  EN 0.7912/ch. Writes no cleaned-away whitespace (0/500 samples vs 9/500 for `arke0_web_last`).
+- Previous: `arke0_web_last.pt` (same recipe on `data/`; v2 val 3.1612, its own val 3.1606); the
+  quantization results (`arke0_web_q4.pt`) are for this model. Before that `arke0_bpe.pt`,
+  13.88M params, 3.718/token, 1.100/ch.

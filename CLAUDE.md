@@ -48,7 +48,7 @@ AI is my collaborator, not my replacement: I keep the understanding and the cont
 - `train.py --data <folder>` reads those files with memmap; `--resume` continues from `<name>_last.pt`.
   `torch.compile` needs `triton-windows` (installed); `--no-compile` turns it off.
 - Old pipeline (`data_download.py` -> `tokenizer_bpe.py` -> `data/bpe.pt`, vocab 8192) is what
-  `arke0_bpe.pt` and the runs/ size experiment were trained on; the current train.py no longer reads it.
+  `arke0_bpe.pt` and the old size experiment (`runs/xs`, `s`, `m`, `l`) were trained on; the current train.py no longer reads it.
 - `<|endoftext|>` is a special token (id 0) separating documents.
 - `Config` is a dataclass in `model.py`. Checkpoints store `asdict(cfg)`; `sample.py` rebuilds
   the architecture from the checkpoint, not from defaults.
@@ -62,3 +62,6 @@ AI is my collaborator, not my replacement: I keep the understanding and the cont
 - Previous: `arke0_web_last.pt` (same recipe on `data/`; v2 val 3.1612, its own val 3.1606); the
   quantization results (`arke0_web_q4.pt`) are for this model. Before that `arke0_bpe.pt`,
   13.88M params, 3.718/token, 1.100/ch.
+- Size experiment on `data/v2` (`arke0_clean`'s recipe, 2.0B tokens): `v2_xs_last.pt` 7.42M 3.9085,
+  `v2_s_last.pt` 17.03M 3.5872, `v2_m_last.pt` 33.72M 3.3937 (full v2 val). `plot_scaling.py` draws
+  them with `arke0_clean` into `docs/scaling.png`; `runs/` stays out of git.

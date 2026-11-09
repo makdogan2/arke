@@ -76,6 +76,7 @@ Work is saved in small shards, so after a crash the same command continues where
 .venv\Scripts\python.exe quantize.py --load arke0_web_q4.pt   # measure the 4-bit file alone
 .venv\Scripts\python.exe quantize.py --name arke0_clean_last --bits 16 --data data/v2   # full val loss
 .venv\Scripts\python.exe sample_stats.py            # whitespace the cleaning removes, in 500 samples per model
+.venv\Scripts\python.exe plot_scaling.py            # model size experiment from runs/ -> docs/scaling.png
 ```
 
 - `quantize.py` options:
@@ -177,6 +178,44 @@ tokenizer, so the old model can be scored on the new validation set and only the
   land on one model with probability (1/2)^9 ≈ 0.002.
 - **The check itself:** on the first 2M validation tokens, the rule flags 282 of 2,284 original
   documents (12.3%) and 0 of 2,290 cleaned ones.
+
+### Model size
+
+How much does a bigger model help when the data and the training budget stay the same? Three
+smaller models were trained on `data/v2` with arke0_clean's recipe: same tokenizer, 122,000 steps ×
+64 × 256 = 2.0B tokens, same learning-rate schedule, no dropout. Only the layers, heads and
+embedding size change; arke0_clean is the largest point.
+
+![Final loss against model size, and the training curves of the four models](docs/scaling.png)
+
+| Model | Layers / heads / dim | Params | Without embeddings | Tokens per param | Train time | Full val | TR / char | EN / char | Val gain per doubling of params |
+|---|---|---|---|---|---|---|---|---|---|
+| v2_xs | 4 / 4 / 256 | 7.42M | 3.16M | 270 | 57 min | 3.9085 | 1.0184 | 0.9740 | – |
+| v2_s | 6 / 6 / 384 | 17.03M | 10.64M | 117 | 1 h 47 min | 3.5872 | 0.9330 | 0.8959 | 0.268 |
+| v2_m | 8 / 8 / 512 | 33.72M | 25.20M | 59 | 2 h 11 min | 3.3937 | 0.8818 | 0.8488 | 0.196 |
+| arke0_clean | 12 / 12 / 768 | 97.8M | 85.02M | 20 | 5 h 57 min | 3.1593 | 0.8202 | 0.7912 | 0.153 |
+
+The table is the full validation set, measured with `quantize.py`. The plot uses the 3,200-window
+eval from training, which reads 0.003–0.004 higher.
+
+- **Bigger is still better, by less each time.** Each doubling of the parameters lowers the loss by
+  0.268, then 0.196, then 0.153. Counting only the parameters outside the embedding, the same
+  trend holds: 0.183, 0.156, 0.134. The largest model wins even with 20 tokens per parameter, while
+  the smallest gets 270.
+- **Memorization grows with size but stays small.** The gap between val and train loss at the last
+  eval is 0.009, 0.013, 0.018 and 0.037.
+- **Both languages improve together.** Turkish costs more per character than English in every model:
+  4.6% more for v2_xs and 3.7% more for arke0_clean.
+- **What this does not show:** there is one run per size, so run-to-run noise is unmeasured, though
+  the steps are at least 0.19 apart. Four points do not say where the curve flattens. Train times
+  are rough, since the speed of a run varied by up to 1.7× during the night.
+
+To repeat one size, then redraw the figure:
+
+```
+.venv\Scripts\python.exe train.py --name v2_m --data data/v2 --n_layer 8 --n_embd 512 --n_head 8 --dropout 0 --max-iters 122000 --eval-every 1000 --save-every 1000
+.venv\Scripts\python.exe plot_scaling.py
+```
 
 ## Quantization
 
@@ -282,7 +321,8 @@ train.py           training loop: memmap data, torch.compile, checkpoints + resu
 sample.py          text generation
 quantize.py        quantization from scratch: 8/4/2-bit loss table, 4-bit packing, --save / --load
 sample_stats.py    counts cleaned-away whitespace in generated samples, compares checkpoints
-plot_scaling.py    plots the model size experiment from runs/*.json
+plot_scaling.py    plots the model size experiment from the runs/<name>.json logs
+docs/scaling.png   the figure plot_scaling.py draws, shown in Model size
 count_junk.py      measures leftover junk (CSS, category lines, references) in the corpus
 tokenizer_bpe.py   earlier pipeline: BPE tokenizer + data/bpe.pt (vocab 8192)
 experiments/       learning-phase scripts: char tokenizer, BPE from scratch, attention, quantization and packing demos
@@ -303,4 +343,5 @@ experiments/       learning-phase scripts: char tokenizer, BPE from scratch, att
 - [x] Quantization from scratch: 8, 4 and 2-bit weights
   - [x] Real 4-bit packing and a standalone file: 1,174 MB checkpoint -> 73.6 MB, val +0.024
 - [x] Whitespace cleaning: arke0_clean, same loss, no more whitespace loops (0/500 samples vs 9/500)
+- [x] Model size experiment: 7.4M to 97.8M on the same 2.0B tokens, val 3.909 -> 3.159
 - [ ] Arke-1 — a conversational assistant with tool use

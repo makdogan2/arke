@@ -56,7 +56,8 @@ AI is my collaborator, not my replacement: I keep the understanding and the cont
   part of the pipeline; nothing imports them.
 - Measuring: `quantize.py --name <ckpt> --bits 16 --data data/v2` gives the full val loss (TR/EN
   per char); `sample_stats.py` counts whitespace the cleaning removes and repetition (seq-rep-4, word
-  loops, with real validation text as the reference) in 500 samples per model. Run-to-run noise of
+  loops, with real validation text as the reference) in 500 samples per model; `--temperature` and
+  `--top_k` change the sampling (repetition depends strongly on them). Run-to-run noise of
   full val: std about 0.0025 (`v2_xs`, three seeds). Run `sample_stats.py` with the GPU free: at
   batch 100 next to a training run it goes out of memory.
 - Current model: `arke0_clean_last.pt` (`arke0_web`'s recipe on `data/v2`; step 122k, also the

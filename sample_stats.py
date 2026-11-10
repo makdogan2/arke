@@ -32,7 +32,12 @@ parser.add_argument("--prompts", nargs="+", default=None,
                     help="start from these texts, with no <|endoftext|> before them (as sample.py does); "
                          "the samples are split evenly between them")
 parser.add_argument("--data", default="data/v2", help="folder with val.bin and meta.json for the real-text reference")
+parser.add_argument("--temperature", type=float, default=0.8,
+                    help="divides the logits before sampling: below 1 favors likely tokens, above 1 flattens")
+parser.add_argument("--top_k", type=int, default=50, help="sample only among the k most likely tokens")
 args = parser.parse_args()
+if args.temperature <= 0:
+    parser.error("--temperature must be above 0: generate divides the logits by it")
 device = "cuda"
 
 LOOP = 8                                 # whitespace characters in a row that count as a loop
@@ -85,7 +90,7 @@ def generate_all(model, tok, eot):
             seed += 1
             idx = torch.tensor([start] * b, dtype=torch.long, device=device)
             with torch.autocast(device_type="cuda", dtype=torch.bfloat16):    # as in train.py's eval
-                idx = model.generate(idx, args.tokens, temperature=0.8, top_k=50)
+                idx = model.generate(idx, args.tokens, temperature=args.temperature, top_k=args.top_k)
             out += idx[:, drop:].tolist()
     return out
 
@@ -148,7 +153,8 @@ for name in args.names:
     torch.cuda.empty_cache()
 
 source = f"from {args.prompts}" if args.prompts else "from <|endoftext|>"
-print(f"{args.n} samples x {args.tokens} tokens per model, {source}, temperature 0.8, top_k 50, seed {args.seed}")
+print(f"{args.n} samples x {args.tokens} tokens per model, {source}, temperature {args.temperature}, "
+      f"top_k {args.top_k}, seed {args.seed}")
 print(f"{'model':<18} {'lang':<4} {'n':>4} | {'with pattern':>13} | {'removed/1k ch':>13} | {'loop (8+)':>13} | {'longest':>7} "
       f"| {'seq-rep-4':>13} | {'word loop':>13}")
 for name, lang, n, pat, rem, loop, longest, rep, word_loop in rows:

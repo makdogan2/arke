@@ -91,7 +91,8 @@ Work is saved in small shards, so after a crash the same command continues where
 - `train.py` options: model size (`--n_layer --n_embd --n_head`), `--data <folder>`, `--max-iters`,
   `--eval-every`, `--save-every`, `--seed`, `--no-compile`.
 - `sample.py --seed` picks the random draws (default 1337; the same command gives the same text).
-- `sample_stats.py --prompts "text" ...` starts the samples from text instead of `<|endoftext|>`.
+- `sample_stats.py --prompts "text" ...` starts the samples from text instead of `<|endoftext|>`;
+  `--temperature` and `--top_k` change the sampling (defaults 0.8 and 50).
 - A checkpoint stores the model config, optimizer state, schedule, data folder and random number
   generator states: `sample.py` rebuilds the exact architecture, and `--resume` continues with the
   same training batches as an uninterrupted run. The losses match only closely, not exactly: GPU
@@ -215,7 +216,25 @@ temperature 0.8, top-k 50 (± is the standard error):
 
 Repetition falls as the model grows, but the seq-rep-4 of even the largest models is more than 10×
 that of real text. The difference between arke0_clean and arke0_web is under two standard errors on
-both measures, so the cleaning did not measurably change it. Only this one sampling setting was tried.
+both measures, so the cleaning did not measurably change it.
+
+**Most of it comes from the sampling settings.** The same arke0_clean, 500 samples per setting,
+same seeds:
+
+| Temperature | top-k | seq-rep-4 | Samples with a word loop |
+|---|---|---|---|
+| 0.6 | 50 | 44.3% ±1.2 | 8.6% ±1.3 |
+| 0.8 | 10 | 23.9% ±1.0 | 6.8% ±1.1 |
+| 0.8 | 50 | 11.9% ±0.8 | 5.4% ±1.0 |
+| 0.8 | 200 | 6.1% ±0.5 | 4.4% ±0.9 |
+| 1.0 | 50 | 1.5% ±0.2 | 3.2% ±0.8 |
+
+Sampling closer to the most likely token (lower temperature, smaller k) multiplies the repetition,
+as [Holtzman et al. 2019](https://arxiv.org/abs/1904.09751) describe for decoding that maximizes
+likelihood. At temperature 1.0 seq-rep-4 is close to real text (0.8%), but word loops are still 8×
+more common, and in the four samples per setting we read, the text holds together worse: more
+invented names, dates and lists. These numbers do not measure that, so no setting is called best
+yet, and the defaults stay at 0.8 and 50.
 
 ### Model size
 

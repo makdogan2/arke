@@ -75,7 +75,7 @@ Work is saved in small shards, so after a crash the same command continues where
 .venv\Scripts\python.exe quantize.py --scheme asym --bits 16 4 --packed --save arke0_web_q4.pt
 .venv\Scripts\python.exe quantize.py --load arke0_web_q4.pt   # measure the 4-bit file alone
 .venv\Scripts\python.exe quantize.py --name arke0_clean_last --bits 16 --data data/v2   # full val loss
-.venv\Scripts\python.exe sample_stats.py            # whitespace the cleaning removes, in 500 samples per model
+.venv\Scripts\python.exe sample_stats.py            # cleaned-away whitespace and repetition, in 500 samples per model
 .venv\Scripts\python.exe plot_scaling.py            # model size experiment from runs/ -> docs/scaling.png
 ```
 
@@ -89,7 +89,9 @@ Work is saved in small shards, so after a crash the same command continues where
 - `data_prep.py --smoke` runs the whole pipeline on ~20 MB per source into `data/prep_smoke/`
   in a few minutes; progress goes to `logs/data_prep.log`.
 - `train.py` options: model size (`--n_layer --n_embd --n_head`), `--data <folder>`, `--max-iters`,
-  `--eval-every`, `--save-every`, `--no-compile`.
+  `--eval-every`, `--save-every`, `--seed`, `--no-compile`.
+- `sample.py --seed` picks the random draws (default 1337; the same command gives the same text).
+- `sample_stats.py --prompts "text" ...` starts the samples from text instead of `<|endoftext|>`.
 - A checkpoint stores the model config, optimizer state, schedule, data folder and random number
   generator states: `sample.py` rebuilds the exact architecture, and `--resume` continues with the
   same training batches as an uninterrupted run. The losses match only closely, not exactly: GPU
@@ -150,7 +152,8 @@ Samples: Turkish and English grammar is good (suffixes such as *değiştirilmiş
 are correct) and a paragraph stays on topic, but facts are invented, phrases repeat, and the model
 sometimes drifts into runs of spaces and line breaks. These most likely came from the Wikipedia
 part of the corpus, which still had 614 double spaces per million characters after cleaning
-(web text: 0–5). arke0_clean fixes this (next section).
+(web text: 0–5), and prompts ending in a space made them far more common. arke0_clean fixes this
+(next section).
 
 ### Whitespace cleaning
 
@@ -168,7 +171,8 @@ tokenizer, so the old model can be scored on the new validation set and only the
 | arke0_clean | cleaned data | 3.1593 | 0.8202 | 0.7912 | **0 / 500** | 2 (`\n\n`) |
 
 - **The loss does not move.** −0.0019 is less than the gap between two checkpoints of one run
-  (118k vs 122k: 0.0030). Whitespace is a small part of the text, and the cleaned validation set no
+  (118k vs 122k: 0.0030) and than the seed-to-seed spread measured on v2_xs (std ≈ 0.0025, see
+  [Model size](#model-size)). Whitespace is a small part of the text, and the cleaned validation set no
   longer contains the runs the old model was trained to predict.
 - **The generated text does change.** `sample_stats.py` generates 500 samples of 256 tokens per
   model, starting from `<|endoftext|>` with no prompt (temperature 0.8, top-k 50, same seeds). A
@@ -178,6 +182,40 @@ tokenizer, so the old model can be scored on the new validation set and only the
   land on one model with probability (1/2)^9 ≈ 0.002.
 - **The check itself:** on the first 2M validation tokens, the rule flags 282 of 2,284 original
   documents (12.3%) and 0 of 2,290 cleaned ones.
+- **Prompts that end in a space made the old model far worse.** A prompt like `"Türkiye, "` leaves
+  a lone space token at the end, which is rare before a letter but common before more whitespace
+  in the old data. With the old `sample.py` prompts, half of arke0_web's samples had the pattern:
+
+  | How a sample starts (500 samples, 3 of 4 prompts Turkish) | arke0_web: with pattern | loop (8+) | longest run | arke0_clean: with pattern | loop (8+) | longest run |
+  |---|---|---|---|---|---|---|
+  | no prompt | 1.8% | 0.2% | 45 | 0.0% | 0.0% | 2 |
+  | prompts ending in a space | **48.0%** | 2.6% | 257 | 0.0% | 0.0% | 2 |
+  | the same prompts, no space at the end | 9.4% | 0.0% | 4 | 0.2% | 0.0% | 2 |
+
+  `sample.py` no longer ends its prompts with a space. `quantize.py --sample` keeps them, because the
+  text comparisons in the Quantization section were made with those prompts.
+
+### Repetition
+
+Grammar was the easy part; samples often repeat themselves. `sample_stats.py` measures it on words:
+**seq-rep-4** is the share of a document's word 4-grams that already appeared in it
+([Welleck et al. 2019](https://arxiv.org/abs/1908.04319), eq. 10, there on tokens), and a **word loop**
+is one word three or more times in a row. Real text repeats a little too, so evenly spaced validation
+windows of the same length are scored as a reference. 500 samples of 256 tokens, no prompt,
+temperature 0.8, top-k 50 (± is the standard error):
+
+| Text | Params | seq-rep-4 | Samples with a word loop |
+|---|---|---|---|
+| real validation text | – | 0.8% ±0.1 | 0.4% ±0.3 |
+| v2_xs | 7.42M | 18.4% ±1.1 | 18.6% ±1.7 |
+| v2_s | 17.03M | 17.6% ±1.0 | 9.8% ±1.3 |
+| v2_m | 33.72M | 12.9% ±0.8 | 6.4% ±1.1 |
+| arke0_clean | 97.8M | 11.9% ±0.8 | 5.4% ±1.0 |
+| arke0_web | 97.8M | 10.2% ±0.7 | 3.2% ±0.8 |
+
+Repetition falls as the model grows, but the seq-rep-4 of even the largest models is more than 10×
+that of real text. The difference between arke0_clean and arke0_web is under two standard errors on
+both measures, so the cleaning did not measurably change it. Only this one sampling setting was tried.
 
 ### Model size
 
@@ -206,9 +244,12 @@ eval from training, which reads 0.003–0.004 higher.
   eval is 0.009, 0.013, 0.018 and 0.037.
 - **Both languages improve together.** Turkish costs more per character than English in every model:
   4.6% more for v2_xs and 3.7% more for arke0_clean.
-- **What this does not show:** there is one run per size, so run-to-run noise is unmeasured, though
-  the steps are at least 0.19 apart. Four points do not say where the curve flattens. Train times
-  are rough, since the speed of a run varied by up to 1.7× during the night.
+- **Run-to-run noise is small next to the size effect.** v2_xs was trained three times, changing
+  only the seed (initial weights and batches): 3.9085, 3.9042 and 3.9041 on the full validation
+  set, a standard deviation of about 0.0025. The steps between sizes are at least 0.19.
+- **What this does not show:** the noise was measured only at the smallest size, with three runs.
+  Four points do not say where the curve flattens. Train times are rough: v2_xs took 57 min during
+  the night and 38–41 min in the afternoon.
 
 To repeat one size, then redraw the figure:
 
@@ -320,7 +361,7 @@ model.py           Config dataclass + transformer (Arke0)
 train.py           training loop: memmap data, torch.compile, checkpoints + resume
 sample.py          text generation
 quantize.py        quantization from scratch: 8/4/2-bit loss table, 4-bit packing, --save / --load
-sample_stats.py    counts cleaned-away whitespace in generated samples, compares checkpoints
+sample_stats.py    counts cleaned-away whitespace and repetition in generated samples, compares checkpoints
 plot_scaling.py    plots the model size experiment from the runs/<name>.json logs
 docs/scaling.png   the figure plot_scaling.py draws, shown in Model size
 count_junk.py      measures leftover junk (CSS, category lines, references) in the corpus

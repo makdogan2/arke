@@ -23,6 +23,8 @@ parser.add_argument("--data", default="data",
                     help="folder with train.bin, val.bin and meta.json from data_prep.py")
 parser.add_argument("--resume", action="store_true",
                     help="continue from <name>_last.pt (model size, data and schedule come from the checkpoint)")
+parser.add_argument("--seed", type=int, default=1337,
+                    help="sets the initial weights and the training batches; --resume takes both from the checkpoint")
 parser.add_argument("--max-iters", type=int, default=8000)
 parser.add_argument("--eval-every", type=int, default=500)
 parser.add_argument("--save-every", type=int, default=500)
@@ -72,7 +74,7 @@ if args.compile and importlib.util.find_spec("triton") is None:
     print("torch.compile needs Triton (on Windows: uv pip install triton-windows), running without it")
     args.compile = False
 
-torch.manual_seed(1337)
+torch.manual_seed(args.seed)
 torch.set_float32_matmul_precision("high")
 
 def get_lr(it):

@@ -55,7 +55,10 @@ AI is my collaborator, not my replacement: I keep the understanding and the cont
 - `experiments/`: scripts from the learning phase (char tokenizer, BPE demos, attention). Not
   part of the pipeline; nothing imports them.
 - Measuring: `quantize.py --name <ckpt> --bits 16 --data data/v2` gives the full val loss (TR/EN
-  per char); `sample_stats.py` counts whitespace the cleaning removes in 500 samples per model.
+  per char); `sample_stats.py` counts whitespace the cleaning removes and repetition (seq-rep-4, word
+  loops, with real validation text as the reference) in 500 samples per model. Run-to-run noise of
+  full val: std about 0.0025 (`v2_xs`, three seeds). Run `sample_stats.py` with the GPU free: at
+  batch 100 next to a training run it goes out of memory.
 - Current model: `arke0_clean_last.pt` (`arke0_web`'s recipe on `data/v2`; step 122k, also the
   best checkpoint), 97.8M params, 2.0B tokens, 5 h 57 min. Full v2 val: 3.1593/token, TR 0.8202/ch,
   EN 0.7912/ch. Writes no cleaned-away whitespace (0/500 samples vs 9/500 for `arke0_web_last`).

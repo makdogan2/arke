@@ -38,9 +38,10 @@ if val is not None:
 def generate(prompt, n=200, temperature=0.8, top_k=50):
     torch.manual_seed(args.seed)
     idx = torch.tensor([tok.encode(prompt).ids], dtype=torch.long, device=device)
-    out = model.generate(idx, n, temperature, top_k)[0].tolist()
-    # keep <|endoftext|> visible: the model ends a document there and starts a new one
-    return tok.decode(out, skip_special_tokens=False).replace(EOT, f"\n\n{EOT}\n\n")
+    # stop at the end of the document instead of starting a new, unrelated one
+    out = model.generate(idx, n, temperature, top_k, stop_token=tok.token_to_id(EOT))[0].tolist()
+    # keep <|endoftext|> visible: it shows the model ended the document itself, not the token limit
+    return tok.decode(out, skip_special_tokens=False).replace(EOT, f"\n{EOT}")
 
 # no space at the end: a lone space token would force the model to begin with a broken word
 for p in ["Türkiye,", "Bilim insanları", "The history of", "Scientists have"]:

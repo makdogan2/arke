@@ -91,6 +91,9 @@ Work is saved in small shards, so after a crash the same command continues where
 - `train.py` options: model size (`--n_layer --n_embd --n_head`), `--data <folder>`, `--max-iters`,
   `--eval-every`, `--save-every`, `--seed`, `--no-compile`.
 - `sample.py --seed` picks the random draws (default 1337; the same command gives the same text).
+  It stops a sample at `<|endoftext|>` (`generate(..., stop_token=...)`) instead of starting a new,
+  unrelated document; the other scripts keep generating to the token limit, as their results were
+  measured that way.
 - `sample_stats.py --prompts "text" ...` starts the samples from text instead of `<|endoftext|>`;
   `--temperature` and `--top_k` change the sampling (defaults 0.8 and 50).
 - A checkpoint stores the model config, optimizer state, schedule, data folder and random number

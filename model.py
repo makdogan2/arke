@@ -102,7 +102,11 @@ class Arke0(nn.Module):
         return logits, loss
 
     @torch.no_grad()
-    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
+    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, stop_token=None):
+        """Append up to max_new_tokens sampled tokens to every row of idx.
+        stop_token: a row that samples it is finished; its later positions are filled with stop_token,
+        and the loop ends early once every row is finished. None keeps generating to max_new_tokens."""
+        done = torch.zeros(idx.size(0), dtype=torch.bool, device=idx.device)   # one flag per row
         for _ in range(max_new_tokens):
             idx_kirp = idx[:, -self.cfg.block_size:]   # pencereyi aşma
             logits, _ = self(idx_kirp)
@@ -112,5 +116,10 @@ class Arke0(nn.Module):
                 logits[logits < v[:, [-1]]] = -float('inf')
             probs = F.softmax(logits, dim=-1)
             sonraki = torch.multinomial(probs, num_samples=1)
+            if stop_token is not None:
+                sonraki[done] = stop_token               # a finished row only repeats the stop token
+                done |= sonraki[:, 0] == stop_token      # rows that just sampled it are finished now
             idx = torch.cat((idx, sonraki), dim=1)
+            if done.all():                               # every row finished: nothing left to generate
+                break
         return idx

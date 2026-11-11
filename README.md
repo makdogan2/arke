@@ -95,7 +95,8 @@ Work is saved in small shards, so after a crash the same command continues where
   unrelated document; the other scripts keep generating to the token limit, as their results were
   measured that way.
 - `sample_stats.py --prompts "text" ...` starts the samples from text instead of `<|endoftext|>`;
-  `--temperature` and `--top_k` change the sampling (defaults 0.8 and 50).
+  `--temperature` and `--top_k` change the sampling (defaults 0.8 and 50); `--top_p` adds nucleus
+  sampling and `--top_k 0` turns top-k off.
 - A checkpoint stores the model config, optimizer state, schedule, data folder and random number
   generator states: `sample.py` rebuilds the exact architecture, and `--resume` continues with the
   same training batches as an uninterrupted run. The losses match only closely, not exactly: GPU
@@ -238,6 +239,27 @@ likelihood. At temperature 1.0 seq-rep-4 is close to real text (0.8%), but word 
 more common, and in the four samples per setting we read, the text holds together worse: more
 invented names, dates and lists. These numbers do not measure that, so no setting is called best
 yet, and the defaults stay at 0.8 and 50.
+
+**Top-p (nucleus) sampling** keeps, at each step, only the most likely tokens whose probabilities
+add up to p, so the set is small where the model is sure and large where it is not
+([Holtzman et al. 2019](https://arxiv.org/abs/1904.09751)). Same model, samples and seeds, top-k off:
+
+| Temperature | top-p | seq-rep-4 | Samples with a word loop | Samples with cleaned-away whitespace |
+|---|---|---|---|---|
+| 1.0 | off (pure sampling) | 0.1% ±0.0 | 0.8% ±0.4 | 8.6% ±1.3 |
+| 1.0 | 0.95 | 0.5% ±0.1 | 0.8% ±0.4 | 0.6% ±0.3 |
+| 1.0 | 0.9 | 0.8% ±0.2 | 0.6% ±0.3 | 0.4% ±0.3 |
+| 1.0 | 0.8 | 3.2% ±0.5 | 1.8% ±0.6 | 0.2% ±0.2 |
+| 0.8 | 0.9 | 16.6% ±1.0 | 5.4% ±1.0 | 0.2% ±0.2 |
+| *real text* | | *0.8% ±0.1* | *0.4% ±0.3* | |
+
+At temperature 1.0 and p 0.9 both repetition numbers match real text, while top-k 50 at the same
+temperature still had about 2× real text's seq-rep-4 (1.5%) and 8× its word loops (3.2%). Without any cut, the rare tokens of the
+tail break the text: words of the other language inside a sentence, half words, and whitespace the
+cleaning removes in 8.6% of samples. Read by eye, p 0.9 is fluent but drifts from its topic, like
+every setting at temperature 1.0. Nothing here measures meaning, so the defaults do not change.
+`generate` computes the top-p cut in float32: a bf16 cumulative sum can stall just below p, and at
+p 0.95 it kept 7,933 tokens on average instead of 769.
 
 ### Model size
 

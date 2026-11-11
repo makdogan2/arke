@@ -34,10 +34,14 @@ parser.add_argument("--prompts", nargs="+", default=None,
 parser.add_argument("--data", default="data/v2", help="folder with val.bin and meta.json for the real-text reference")
 parser.add_argument("--temperature", type=float, default=0.8,
                     help="divides the logits before sampling: below 1 favors likely tokens, above 1 flattens")
-parser.add_argument("--top_k", type=int, default=50, help="sample only among the k most likely tokens")
+parser.add_argument("--top_k", type=int, default=50, help="sample only among the k most likely tokens; 0 turns it off")
+parser.add_argument("--top_p", type=float, default=None,
+                    help="nucleus sampling: keep the most likely tokens until their probabilities reach this sum")
 args = parser.parse_args()
 if args.temperature <= 0:
     parser.error("--temperature must be above 0: generate divides the logits by it")
+if args.top_p is not None and not 0 < args.top_p <= 1:
+    parser.error("--top_p must be above 0 and at most 1")
 device = "cuda"
 
 LOOP = 8                                 # whitespace characters in a row that count as a loop
@@ -90,7 +94,8 @@ def generate_all(model, tok, eot):
             seed += 1
             idx = torch.tensor([start] * b, dtype=torch.long, device=device)
             with torch.autocast(device_type="cuda", dtype=torch.bfloat16):    # as in train.py's eval
-                idx = model.generate(idx, args.tokens, temperature=args.temperature, top_k=args.top_k)
+                idx = model.generate(idx, args.tokens, temperature=args.temperature,
+                                     top_k=args.top_k or None, top_p=args.top_p)
             out += idx[:, drop:].tolist()
     return out
 
@@ -154,7 +159,7 @@ for name in args.names:
 
 source = f"from {args.prompts}" if args.prompts else "from <|endoftext|>"
 print(f"{args.n} samples x {args.tokens} tokens per model, {source}, temperature {args.temperature}, "
-      f"top_k {args.top_k}, seed {args.seed}")
+      f"top_k {args.top_k}, top_p {args.top_p}, seed {args.seed}")
 print(f"{'model':<18} {'lang':<4} {'n':>4} | {'with pattern':>13} | {'removed/1k ch':>13} | {'loop (8+)':>13} | {'longest':>7} "
       f"| {'seq-rep-4':>13} | {'word loop':>13}")
 for name, lang, n, pat, rem, loop, longest, rep, word_loop in rows:

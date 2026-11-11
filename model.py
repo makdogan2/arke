@@ -102,8 +102,10 @@ class Arke0(nn.Module):
         return logits, loss
 
     @torch.no_grad()
-    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, stop_token=None):
+    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, stop_token=None, top_p=None):
         """Append up to max_new_tokens sampled tokens to every row of idx.
+        top_p: sample only from the smallest set of most likely tokens whose probabilities add up to
+        at least top_p (nucleus sampling, Holtzman et al. 2019). None keeps every token.
         stop_token: a row that samples it is finished; its later positions are filled with stop_token,
         and the loop ends early once every row is finished. None keeps generating to max_new_tokens."""
         done = torch.zeros(idx.size(0), dtype=torch.bool, device=idx.device)   # one flag per row
@@ -114,6 +116,12 @@ class Arke0(nn.Module):
             if top_k is not None:
                 v, _ = torch.topk(logits, top_k)
                 logits[logits < v[:, [-1]]] = -float('inf')
+            if top_p is not None:
+                sorted_logits, order = torch.sort(logits, dim=-1, descending=True)
+                sorted_probs = F.softmax(sorted_logits.float(), dim=-1)   # float32: a bf16 cumsum can stall below top_p
+                before = sorted_probs.cumsum(dim=-1) - sorted_probs     # probability of all tokens ranked above
+                sorted_logits[before >= top_p] = -float('inf')          # the most likely token always stays (before = 0)
+                logits = logits.scatter(1, order, sorted_logits)       # put the scores back in vocabulary order
             probs = F.softmax(logits, dim=-1)
             sonraki = torch.multinomial(probs, num_samples=1)
             if stop_token is not None:

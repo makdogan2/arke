@@ -80,6 +80,8 @@ torch.set_float32_matmul_precision("high")
 def get_lr(it):
     if it < warmup:                                  # linear warmup
         return max_lr * (it + 1) / warmup
+    if it >= max_iters:                              # end of decay; also max_iters == warmup, where ratio divides by 0
+        return min_lr
     ratio = (it - warmup) / (max_iters - warmup)     # cosine decay
     return min_lr + 0.5 * (max_lr - min_lr) * (1 + math.cos(math.pi * ratio))
 

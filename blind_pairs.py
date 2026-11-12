@@ -7,6 +7,7 @@ separate key file, so the reader cannot tell them apart.
     python blind_pairs.py --name arke0_clean_last          # writes runs/blind/pairs.txt and key.json
     (write A, B or = after "choice:" for every pair in pairs.txt)
     python blind_pairs.py --score                           # counts the wins of each setting
+    python blind_pairs.py --score --choices judge.txt --agree pairs.txt   # another judge, and how often they agree
 
 A setting is three numbers: temperature, top_k (0 = off), top_p (0 = off).
 """
@@ -32,7 +33,10 @@ parser.add_argument("--prompt_tokens", type=int, default=16, help="prompt length
 parser.add_argument("--seed", type=int, default=1337, help="pair i samples both settings from seed + i")
 parser.add_argument("--data", default="data/v2", help="folder with val_tr.bin, val_en.bin and meta.json")
 parser.add_argument("--out", default="runs/blind", help="folder for pairs.txt and key.json")
-parser.add_argument("--score", action="store_true", help="count the choices in pairs.txt instead of writing it")
+parser.add_argument("--score", action="store_true", help="count the choices instead of writing the pairs")
+parser.add_argument("--choices", default="pairs.txt", help="--score: the file in --out with the choices to count")
+parser.add_argument("--agree", default=None,
+                    help="--score: another choices file in --out; prints how often the two judges agree")
 args = parser.parse_args()
 out = ROOT / args.out
 PAIR = re.compile(r"^=== pair (\d+)", re.M)
@@ -47,17 +51,22 @@ def sign_test(a, b):
     n, k = a + b, min(a, b)
     return min(1.0, 2 * sum(math.comb(n, i) for i in range(k + 1)) / 2 ** n) if n else 1.0
 
-if args.score:
-    key = json.loads((out / "key.json").read_text(encoding="utf-8"))
-    text = (out / "pairs.txt").read_text(encoding="utf-8")
+def read_choices(name, n):
+    """(pair numbers, choices) from a filled copy of pairs.txt; stops on a missing or unknown choice."""
+    text = (out / name).read_text(encoding="utf-8")
     pairs = [int(m.group(1)) for m in PAIR.finditer(text)]
     choices = [m.group(1).upper() for m in CHOICE.finditer(text)]
-    if len(pairs) != len(key["pairs"]) or len(choices) != len(pairs):
-        sys.exit(f"{len(pairs)} pairs and {len(choices)} choice lines in pairs.txt, the key has {len(key['pairs'])}")
+    if len(pairs) != n or len(choices) != len(pairs):
+        sys.exit(f"{len(pairs)} pairs and {len(choices)} choice lines in {name}, the key has {n}")
     if any(c not in ("A", "B", "=") for c in choices):
-        sys.exit("every choice must be A, B or =; still open: "
+        sys.exit(f"every choice in {name} must be A, B or =; still open: "
                  + ", ".join(str(p) for p, c in zip(pairs, choices) if c not in ("A", "B", "=")))
-    print(f"{key['name']}: first = {label(key['first'])}, second = {label(key['second'])}")
+    return pairs, choices
+
+if args.score:
+    key = json.loads((out / "key.json").read_text(encoding="utf-8"))
+    pairs, choices = read_choices(args.choices, len(key["pairs"]))
+    print(f"{key['name']}: first = {label(key['first'])}, second = {label(key['second'])} ({args.choices})")
     for lang in ("all", "tr", "en"):
         wins = {"first": 0, "second": 0, "tie": 0}
         for p, c in zip(pairs, choices):
@@ -67,6 +76,14 @@ if args.score:
             wins["tie" if c == "=" else info[c]] += 1
         print(f"{lang:<4} first {wins['first']:3} | second {wins['second']:3} | tie {wins['tie']:3} "
               f"| sign test p = {sign_test(wins['first'], wins['second']):.3f}")
+    if args.agree:
+        other_pairs, other = read_choices(args.agree, len(key["pairs"]))
+        if other_pairs != pairs:
+            sys.exit(f"{args.choices} and {args.agree} list different pairs")
+        same = sum(a == b for a, b in zip(choices, other))
+        both = [(a, b) for a, b in zip(choices, other) if a != "=" and b != "="]   # both picked a side
+        print(f"agreement with {args.agree}: same choice in {same}/{len(pairs)} pairs; "
+              f"where both picked a side, the same side in {sum(a == b for a, b in both)}/{len(both)}")
     sys.exit()
 
 if (out / "pairs.txt").exists():

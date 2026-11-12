@@ -28,6 +28,9 @@ parser.add_argument("--seed", type=int, default=1337,
 parser.add_argument("--max-iters", type=int, default=8000)
 parser.add_argument("--eval-every", type=int, default=500)
 parser.add_argument("--save-every", type=int, default=500)
+parser.add_argument("--deterministic", action="store_true",
+                    help="use only deterministic GPU kernels: the same seed gives bit-identical weights "
+                         "(--resume keeps the checkpoint's setting)")
 parser.add_argument("--compile", action=argparse.BooleanOptionalAction, default=True,
                     help="torch.compile the model (needs Triton; on Windows: uv pip install triton-windows)")
 parser.add_argument("--stop-at", type=int, default=None,
@@ -73,6 +76,14 @@ tok = Tokenizer.from_file(str(tok_file))
 if args.compile and importlib.util.find_spec("triton") is None:
     print("torch.compile needs Triton (on Windows: uv pip install triton-windows), running without it")
     args.compile = False
+
+# Some GPU kernels add numbers in whatever order their threads finish (atomic adds), so two runs with
+# the same seed drift apart. Deterministic kernels fix the order; measured at no clear cost in speed.
+# This must happen before the first CUDA operation: cuBLAS reads its workspace setting once.
+deterministic = ckpt["train"].get("deterministic", False) if ckpt else args.deterministic
+if deterministic:
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"    # cuBLAS repeats its sums exactly only with a fixed workspace
+    torch.use_deterministic_algorithms(True)             # an op with no deterministic version raises an error
 
 torch.manual_seed(args.seed)
 torch.set_float32_matmul_precision("high")
@@ -143,7 +154,8 @@ def save(path, step):
         "step": step,
         "best_val": best_val,
         "train": dict(batch_size=batch_size, max_iters=max_iters, warmup=warmup,
-                      max_lr=max_lr, min_lr=min_lr, eval_every=eval_every, save_every=save_every),
+                      max_lr=max_lr, min_lr=min_lr, eval_every=eval_every, save_every=save_every,
+                      deterministic=deterministic),
         "history": history,
         "elapsed": time.time() - t0,
         "rng": {"cpu": torch.get_rng_state(), "cuda": torch.cuda.get_rng_state()},
@@ -189,7 +201,7 @@ fwd = torch.compile(model) if args.compile else model
 n_params = sum(p.numel() for p in model.parameters())   # tied head is counted once
 # scaling laws use parameters without the embedding lookup tables
 n_params_non_emb = n_params - model.tok_emb.weight.numel() - model.pos_emb.weight.numel()
-print(f"config: {asdict(cfg)} | data: {rel(data_dir, ROOT)} | compile: {args.compile}")
+print(f"config: {asdict(cfg)} | data: {rel(data_dir, ROOT)} | compile: {args.compile} | deterministic: {deterministic}")
 print(f"parameters: {n_params/1e6:.2f}M ({n_params_non_emb/1e6:.2f}M without embeddings)")
 print(f"tokens seen at end: {max_iters*batch_size*cfg.block_size/1e6:.0f}M "
       f"({max_iters*batch_size*cfg.block_size/len(train_data):.1f} epochs)")
@@ -206,6 +218,7 @@ def write_run_log():
                                "batch_size": batch_size,
                                "max_iters": max_iters,
                                "max_lr": max_lr,
+                               "deterministic": deterministic,
                                "train_time": time.time() - t0,
                                "best_val": best_val,
                                "history": history}, indent=2))

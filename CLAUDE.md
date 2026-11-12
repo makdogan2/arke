@@ -47,6 +47,7 @@ AI is my collaborator, not my replacement: I keep the understanding and the cont
   `data/` is the pre-cleaning version that `arke0_web` was trained on.
 - `train.py --data <folder>` reads those files with memmap; `--resume` continues from `<name>_last.pt`.
   `torch.compile` needs `triton-windows` (installed); `--no-compile` turns it off.
+  `--deterministic` makes runs bit-identical (same seed, also across `--resume`), at no measured speed cost.
 - Old pipeline (`data_download.py` -> `tokenizer_bpe.py` -> `data/bpe.pt`, vocab 8192) is what
   `arke0_bpe.pt` and the old size experiment (`runs/xs`, `s`, `m`, `l`) were trained on; the current train.py no longer reads it.
 - `<|endoftext|>` is a special token (id 0) separating documents.
@@ -60,6 +61,8 @@ AI is my collaborator, not my replacement: I keep the understanding and the cont
   `--top_k` (0 = off) and `--top_p` change the sampling (repetition depends strongly on them).
   `blind_pairs.py` writes blind A/B pairs of two sampling settings into `runs/blind/pairs.txt` for
   Mehmet to judge; `--score` counts them. It never overwrites a `pairs.txt` (it may hold his choices).
+  `runs/blind/claude_choices.txt` holds Claude's own blind choices (12 Nov), not scored until Mehmet
+  has filled his: `--score --choices claude_choices.txt --agree pairs.txt`.
   Run-to-run noise of full val: std about 0.0025 (`v2_xs`, three seeds). Run `sample_stats.py`
   with the GPU free: at batch 100 next to a training run or a game it goes out of memory. Check
   `nvidia-smi` first and ask before using a GPU that something else is using.

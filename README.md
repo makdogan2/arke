@@ -78,6 +78,7 @@ Work is saved in small shards, so after a crash the same command continues where
 .venv\Scripts\python.exe sample_stats.py            # cleaned-away whitespace and repetition, in 500 samples per model
 .venv\Scripts\python.exe blind_pairs.py             # blind A/B pairs of two sampling settings -> runs/blind/pairs.txt
 .venv\Scripts\python.exe blind_pairs.py --score     # count the choices written into pairs.txt
+.venv\Scripts\python.exe blind_pairs.py --score --choices judge.txt --agree pairs.txt   # a second judge and the agreement
 .venv\Scripts\python.exe plot_scaling.py            # model size experiment from runs/ -> docs/scaling.png
 ```
 
@@ -91,7 +92,7 @@ Work is saved in small shards, so after a crash the same command continues where
 - `data_prep.py --smoke` runs the whole pipeline on ~20 MB per source into `data/prep_smoke/`
   in a few minutes; progress goes to `logs/data_prep.log`.
 - `train.py` options: model size (`--n_layer --n_embd --n_head`), `--data <folder>`, `--max-iters`,
-  `--eval-every`, `--save-every`, `--seed`, `--no-compile`.
+  `--eval-every`, `--save-every`, `--seed`, `--no-compile`, `--deterministic`.
 - `sample.py --seed` picks the random draws (default 1337; the same command gives the same text).
   It stops a sample at `<|endoftext|>` (`generate(..., stop_token=...)`) instead of starting a new,
   unrelated document; the other scripts keep generating to the token limit, as their results were
@@ -103,12 +104,17 @@ Work is saved in small shards, so after a crash the same command continues where
   each of two settings (`--first` and `--second`: temperature, top_k, top_p; 0 turns a cut off;
   defaults 0.8 / 50 / 0 and 1.0 / 0 / 0.9). Which one is A is random per pair and kept in `key.json`.
   A reader writes A, B or = for every pair; `--score` counts the wins per language with a two-sided
-  sign test.
+  sign test. `--choices` scores another filled copy (say, an LLM judge's) and `--agree` counts how
+  often two judges chose the same.
 - A checkpoint stores the model config, optimizer state, schedule, data folder and random number
   generator states: `sample.py` rebuilds the exact architecture, and `--resume` continues with the
   same training batches as an uninterrupted run. The losses match only closely, not exactly: GPU
   kernels are not bit-exact, so even two uninterrupted runs differ by ~0.0001 after 100 steps, and the
-  gap can grow to ~0.008 around the learning-rate peak before it shrinks again.
+  gap can grow to ~0.008 around the learning-rate peak before it shrinks again. `--deterministic`
+  uses only deterministic GPU kernels (`torch.use_deterministic_algorithms`): at arke0_clean's size,
+  two 300-step runs gave bit-identical weights, and so did a run stopped at step 150 and resumed from
+  its step-100 checkpoint, at no clear cost in speed (93k tokens/s with and without). `--resume`
+  keeps the checkpoint's setting. It is off by default, so earlier commands train as before.
 
 Arke-0 below was trained with the earlier pipeline (`data_download.py` -> `tokenizer_bpe.py` ->
 `data/bpe.pt`, vocab 8192), which the current `train.py` no longer reads.

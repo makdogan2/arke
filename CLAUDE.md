@@ -58,6 +58,8 @@ AI is my collaborator, not my replacement: I keep the understanding and the cont
   per char); `sample_stats.py` counts whitespace the cleaning removes and repetition (seq-rep-4, word
   loops, with real validation text as the reference) in 500 samples per model; `--temperature`,
   `--top_k` (0 = off) and `--top_p` change the sampling (repetition depends strongly on them).
+  `blind_pairs.py` writes blind A/B pairs of two sampling settings into `runs/blind/pairs.txt` for
+  Mehmet to judge; `--score` counts them. It never overwrites a `pairs.txt` (it may hold his choices).
   Run-to-run noise of full val: std about 0.0025 (`v2_xs`, three seeds). Run `sample_stats.py`
   with the GPU free: at batch 100 next to a training run or a game it goes out of memory. Check
   `nvidia-smi` first and ask before using a GPU that something else is using.

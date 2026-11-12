@@ -76,6 +76,8 @@ Work is saved in small shards, so after a crash the same command continues where
 .venv\Scripts\python.exe quantize.py --load arke0_web_q4.pt   # measure the 4-bit file alone
 .venv\Scripts\python.exe quantize.py --name arke0_clean_last --bits 16 --data data/v2   # full val loss
 .venv\Scripts\python.exe sample_stats.py            # cleaned-away whitespace and repetition, in 500 samples per model
+.venv\Scripts\python.exe blind_pairs.py             # blind A/B pairs of two sampling settings -> runs/blind/pairs.txt
+.venv\Scripts\python.exe blind_pairs.py --score     # count the choices written into pairs.txt
 .venv\Scripts\python.exe plot_scaling.py            # model size experiment from runs/ -> docs/scaling.png
 ```
 
@@ -97,6 +99,11 @@ Work is saved in small shards, so after a crash the same command continues where
 - `sample_stats.py --prompts "text" ...` starts the samples from text instead of `<|endoftext|>`;
   `--temperature` and `--top_k` change the sampling (defaults 0.8 and 50); `--top_p` adds nucleus
   sampling and `--top_k 0` turns top-k off.
+- `blind_pairs.py` continues the beginnings of 50 real validation documents (25 TR, 25 EN) once with
+  each of two settings (`--first` and `--second`: temperature, top_k, top_p; 0 turns a cut off;
+  defaults 0.8 / 50 / 0 and 1.0 / 0 / 0.9). Which one is A is random per pair and kept in `key.json`.
+  A reader writes A, B or = for every pair; `--score` counts the wins per language with a two-sided
+  sign test.
 - A checkpoint stores the model config, optimizer state, schedule, data folder and random number
   generator states: `sample.py` rebuilds the exact architecture, and `--resume` continues with the
   same training batches as an uninterrupted run. The losses match only closely, not exactly: GPU
@@ -406,6 +413,7 @@ train.py           training loop: memmap data, torch.compile, checkpoints + resu
 sample.py          text generation
 quantize.py        quantization from scratch: 8/4/2-bit loss table, 4-bit packing, --save / --load
 sample_stats.py    counts cleaned-away whitespace and repetition in generated samples, compares checkpoints
+blind_pairs.py     blind pairwise comparison of two sampling settings, judged by a person
 plot_scaling.py    plots the model size experiment from the runs/<name>.json logs
 docs/scaling.png   the figure plot_scaling.py draws, shown in Model size
 count_junk.py      measures leftover junk (CSS, category lines, references) in the corpus

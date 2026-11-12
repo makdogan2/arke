@@ -47,6 +47,8 @@ device = "cuda"
 LOOP = 8                                 # whitespace characters in a row that count as a loop
 WS_RUN = re.compile(r"\s+")
 TR_LETTERS = set("çğıöşüÇĞİÖŞÜ")         # rare in English text: a rough language guess
+TR_SHARE = 0.01                          # TR if at least this share of the letters are TR_LETTERS
+LETTER = re.compile(r"[^\W\d_]")
 LEGIT_CUT_ENDS = ("\n\n", "\n", " ")     # what a clean text can end with when cut mid-document
 WORD = re.compile(r"[^\W\d_]+(?:['’][^\W\d_]+)*")   # letters, with an apostrophe inside: Rusya’dan, don't
 NGRAM = 4                                # seq-rep-n of Welleck et al. 2019
@@ -77,9 +79,12 @@ def repetition(docs):
     return repeated, total, run
 
 def language(docs):
-    """TR or EN by the longest document of the sample."""
+    """TR or EN by the longest document of the sample. A share, not a single letter: English samples
+    often carry a few Turkish words (median share in Turkish text 10.5%, in English 0)."""
     main = max(docs, key=len, default="")
-    return "tr" if any(c in TR_LETTERS for c in main) else "en"
+    letters = LETTER.findall(main)
+    tr = sum(c in TR_LETTERS for c in letters)
+    return "tr" if letters and tr / len(letters) >= TR_SHARE else "en"
 
 @torch.no_grad()
 def generate_all(model, tok, eot):

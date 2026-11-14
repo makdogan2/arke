@@ -338,6 +338,33 @@ To repeat one size, then redraw the figure:
 .venv\Scripts\python.exe plot_scaling.py
 ```
 
+### Turkish suffixes after an apostrophe
+
+Before BPE runs, a pre-tokenizer cuts the text into pieces, and no token can cross a cut. The
+tokenizer uses GPT-2's byte-level rule, which splits off the English endings `'s 't 're 've 'm 'll 'd`.
+Turkish puts a suffix after an apostrophe on every proper noun, so it gets cut in odd places:
+`Türkiye'de` becomes `Türkiye | 'd | e`, while `Ankara'nın` becomes `Ankara | ' | nın`. A curly
+apostrophe (’) is not handled at all: `Türkçe’nin` becomes `Türkçe | ’ | nin`. In the validation
+text 2.8% of Turkish words have such a suffix (a quarter of them with ’), and 0.7% of English words.
+
+`experiments/pretok_compare.py` trains two tokenizers on the same sample (300 MB per language, as
+`data_prep.py`) and compares them on the first 2M validation tokens per language. One uses GPT-2's
+rule. The other uses the same rule, except that an apostrophe right after a letter or digit stays
+with the letters that follow it (`Türkiye | 'de`, `Türkçe | ’nin`, `children | ’s`, `it | 's`). The
+GPT-2 one came out identical to the tokenizer `data_prep.py` trained on `data/v2`, so it is a fair
+baseline.
+
+| Pre-tokenizer | TR chars/token | EN chars/token | Tokens per TR word with apostrophe | Tokens per EN word with apostrophe |
+|---|---|---|---|---|
+| GPT-2 | 3.851 | 3.965 | 4.00 | 3.07 |
+| apostrophe kept with suffix | 3.898 | 3.974 | 3.10 | 2.50 |
+
+Turkish text needs 1.2% fewer tokens and English 0.2% fewer, and a word with an apostrophe drops from
+4.00 to 3.10 tokens. The vocabulary spends 101 entries on apostrophe suffixes instead of 14. A suffix
+now always maps to the same token (`'de`, `'nın`), so the model no longer has to learn that
+`'d + e` and `' + de` mean the same thing. Whether that lowers the loss per character is a
+separate question, because the answer needs the data tokenized again and the model retrained.
+
 ## Quantization
 
 `quantize.py` makes `arke0_web_last.pt` smaller with code written from scratch, without a
@@ -447,7 +474,8 @@ plot_scaling.py    plots the model size experiment from the runs/<name>.json log
 docs/scaling.png   the figure plot_scaling.py draws, shown in Model size
 count_junk.py      measures leftover junk (CSS, category lines, references) in the corpus
 tokenizer_bpe.py   earlier pipeline: BPE tokenizer + data/bpe.pt (vocab 8192)
-experiments/       learning-phase scripts: char tokenizer, BPE from scratch, attention, quantization and packing demos
+experiments/       learning-phase scripts: char tokenizer, BPE from scratch, attention, quantization and packing demos,
+                   pre-tokenizer comparison (pretok_compare.py)
 ```
 
 ## Roadmap

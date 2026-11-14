@@ -54,7 +54,8 @@ AI is my collaborator, not my replacement: I keep the understanding and the cont
 - `Config` is a dataclass in `model.py`. Checkpoints store `asdict(cfg)`; `sample.py` rebuilds
   the architecture from the checkpoint, not from defaults.
 - `experiments/`: scripts from the learning phase (char tokenizer, BPE demos, attention). Not
-  part of the pipeline; nothing imports them.
+  part of the pipeline; nothing imports them. `pretok_compare.py` (14 Nov) trains a GPT-2-rule and an
+  apostrophe-aware tokenizer on the same sample into `runs/pretok/` and compares them on val text.
 - Measuring: `quantize.py --name <ckpt> --bits 16 --data data/v2` gives the full val loss (TR/EN
   per char); `sample_stats.py` counts whitespace the cleaning removes and repetition (seq-rep-4, word
   loops, with real validation text as the reference) in 500 samples per model; `--temperature`,

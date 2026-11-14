@@ -99,7 +99,8 @@ Work is saved in small shards, so after a crash the same command continues where
   measured that way.
 - `sample_stats.py --prompts "text" ...` starts the samples from text instead of `<|endoftext|>`;
   `--temperature` and `--top_k` change the sampling (defaults 0.8 and 50); `--top_p` adds nucleus
-  sampling and `--top_k 0` turns top-k off.
+  sampling, `--repetition_penalty` makes tokens already in the context less likely, and `--top_k 0`
+  turns top-k off.
 - `blind_pairs.py` continues the beginnings of 50 real validation documents (25 TR, 25 EN) once with
   each of two settings (`--first` and `--second`: temperature, top_k, top_p; 0 turns a cut off;
   defaults 0.8 / 50 / 0 and 1.0 / 0 / 0.9). Which one is A is random per pair and kept in `key.json`.
@@ -273,6 +274,27 @@ cleaning removes in 8.6% of samples. Read by eye, p 0.9 is fluent but drifts fro
 every setting at temperature 1.0. Nothing here measures meaning, so the defaults do not change.
 `generate` computes the top-p cut in float32: a bf16 cumulative sum can stall just below p, and at
 p 0.95 it kept 7,933 tokens on average instead of 769.
+
+**Repetition penalty** ([Keskar et al. 2019](https://arxiv.org/abs/1909.05858), CTRL, section 4.1)
+leaves the sampling cut alone and lowers, before temperature, the score of every token already in
+the context: a positive logit is divided by the penalty, a negative one multiplied by it. Same
+model, samples and seeds, temperature 0.8, top-k 50:
+
+| Penalty | seq-rep-4 | Samples with a word loop |
+|---|---|---|
+| off | 11.9% ±0.8 | 5.4% ±1.0 |
+| 1.1 | 1.4% ±0.2 | 2.2% ±0.7 |
+| 1.2 | 0.2% ±0.0 | 0.4% ±0.3 |
+| 1.3 | 0.1% ±0.0 | 0.0% ±0.0 |
+| 1.5 | 0.0% ±0.0 | 0.4% ±0.3 |
+| *real text* | *0.8% ±0.1* | *0.4% ±0.3* |
+
+Even 1.1 cuts seq-rep-4 by 8×, and from 1.2 on the samples repeat less than real text does: the
+penalty also hits what text is supposed to repeat, such as the subject of an article, names, and
+common words and punctuation. Reading the four `sample.py` prompts (120 tokens, seed 1337), 1.2 was
+fluent with no loops; at 1.5 the text starts to break, with odd punctuation (";", "—") and broken
+sentences, as the most common tokens get harder to pick. As with top-p, nothing here measures
+meaning, so the defaults do not change.
 
 ### Model size
 

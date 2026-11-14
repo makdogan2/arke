@@ -58,7 +58,8 @@ AI is my collaborator, not my replacement: I keep the understanding and the cont
 - Measuring: `quantize.py --name <ckpt> --bits 16 --data data/v2` gives the full val loss (TR/EN
   per char); `sample_stats.py` counts whitespace the cleaning removes and repetition (seq-rep-4, word
   loops, with real validation text as the reference) in 500 samples per model; `--temperature`,
-  `--top_k` (0 = off) and `--top_p` change the sampling (repetition depends strongly on them).
+  `--top_k` (0 = off), `--top_p` and `--repetition_penalty` change the sampling (repetition depends
+  strongly on them; a penalty of 1.2 already repeats less than real text).
   `blind_pairs.py` writes blind A/B pairs of two sampling settings into `runs/blind/pairs.txt` for
   Mehmet to judge; `--score` counts them. It never overwrites a `pairs.txt` (it may hold his choices).
   `runs/blind/claude_choices.txt` holds Claude's own blind choices (12 Nov), not scored until Mehmet

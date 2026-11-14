@@ -102,17 +102,26 @@ class Arke0(nn.Module):
         return logits, loss
 
     @torch.no_grad()
-    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, stop_token=None, top_p=None):
+    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, stop_token=None, top_p=None,
+                 repetition_penalty=None):
         """Append up to max_new_tokens sampled tokens to every row of idx.
         top_p: sample only from the smallest set of most likely tokens whose probabilities add up to
         at least top_p (nucleus sampling, Holtzman et al. 2019). None keeps every token.
+        repetition_penalty: every token already in the row's context window (prompt included) gets its
+        logit divided by this number if positive and multiplied by it if negative, before temperature
+        (Keskar et al. 2019, CTRL). Above 1 makes repeats less likely; None (or 1) changes nothing.
         stop_token: a row that samples it is finished; its later positions are filled with stop_token,
         and the loop ends early once every row is finished. None keeps generating to max_new_tokens."""
         done = torch.zeros(idx.size(0), dtype=torch.bool, device=idx.device)   # one flag per row
         for _ in range(max_new_tokens):
             idx_kirp = idx[:, -self.cfg.block_size:]   # pencereyi aşma
             logits, _ = self(idx_kirp)
-            logits = logits[:, -1, :] / temperature     # sadece son pozisyon
+            logits = logits[:, -1, :]                   # sadece son pozisyon
+            if repetition_penalty is not None:
+                seen = logits.gather(1, idx_kirp)       # the scores of the tokens this row has already seen
+                seen = torch.where(seen > 0, seen / repetition_penalty, seen * repetition_penalty)
+                logits = logits.scatter(1, idx_kirp, seen)   # a token seen twice gets the same value twice: penalized once
+            logits = logits / temperature
             if top_k is not None:
                 v, _ = torch.topk(logits, top_k)
                 logits[logits < v[:, [-1]]] = -float('inf')

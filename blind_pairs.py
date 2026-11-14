@@ -9,7 +9,8 @@ separate key file, so the reader cannot tell them apart.
     python blind_pairs.py --score                           # counts the wins of each setting
     python blind_pairs.py --score --choices judge.txt --agree pairs.txt   # another judge, and how often they agree
 
-A setting is three numbers: temperature, top_k (0 = off), top_p (0 = off).
+A setting is three or four numbers: temperature, top_k (0 = off), top_p (0 = off) and, optionally,
+repetition_penalty (0 or left out = off), e.g. --second 0.8 50 0 1.2.
 """
 import argparse, json, math, random, re, sys
 from pathlib import Path
@@ -23,9 +24,10 @@ ROOT = Path(__file__).parent
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 parser = argparse.ArgumentParser()
 parser.add_argument("--name", default="arke0_clean_last", help="checkpoint <name>.pt")
-parser.add_argument("--first", nargs=3, type=float, default=[0.8, 50, 0], metavar=("T", "K", "P"),
-                    help="first setting: temperature, top_k (0 = off), top_p (0 = off)")
-parser.add_argument("--second", nargs=3, type=float, default=[1.0, 0, 0.9], metavar=("T", "K", "P"),
+parser.add_argument("--first", nargs="+", type=float, default=[0.8, 50, 0], metavar="X",
+                    help="first setting: temperature, top_k (0 = off), top_p (0 = off), "
+                         "optionally repetition_penalty (0 = off)")
+parser.add_argument("--second", nargs="+", type=float, default=[1.0, 0, 0.9], metavar="X",
                     help="second setting, in the same form")
 parser.add_argument("--n", type=int, default=50, help="pairs, split evenly between TR and EN prompts")
 parser.add_argument("--tokens", type=int, default=100, help="new tokens per continuation at most")
@@ -38,13 +40,18 @@ parser.add_argument("--choices", default="pairs.txt", help="--score: the file in
 parser.add_argument("--agree", default=None,
                     help="--score: another choices file in --out; prints how often the two judges agree")
 args = parser.parse_args()
+for s in (args.first, args.second):
+    if len(s) not in (3, 4):
+        parser.error("a setting is 3 or 4 numbers: temperature, top_k, top_p and optionally repetition_penalty")
+args.first, args.second = (s + [0.0] * (4 - len(s)) for s in (args.first, args.second))   # no penalty: 0
 out = ROOT / args.out
 PAIR = re.compile(r"^=== pair (\d+)", re.M)
 CHOICE = re.compile(r"^choice:[ \t]*(\S*)", re.M)
 
 def label(s):
-    t, k, p = s
-    return f"T {t:g}" + (f", top-k {k:g}" if k else "") + (f", top-p {p:g}" if p else "")
+    t, k, p, r = list(s) + [0] * (4 - len(s))          # key.json files from before the penalty have 3 numbers
+    return (f"T {t:g}" + (f", top-k {k:g}" if k else "") + (f", top-p {p:g}" if p else "")
+            + (f", penalty {r:g}" if r else ""))
 
 def sign_test(a, b):
     """Two-sided exact binomial p-value: how likely a split at least this uneven is if both are equally good."""
@@ -89,8 +96,8 @@ if args.score:
 if (out / "pairs.txt").exists():
     sys.exit(f"{out / 'pairs.txt'} already exists: it may hold your choices. Move it or pass another --out.")
 for s in (args.first, args.second):
-    if s[0] <= 0 or s[1] < 0 or not 0 <= s[2] <= 1:
-        parser.error("a setting needs temperature > 0, top_k >= 0 and top_p between 0 and 1")
+    if s[0] <= 0 or s[1] < 0 or not 0 <= s[2] <= 1 or s[3] < 0:
+        parser.error("a setting needs temperature > 0, top_k >= 0, top_p between 0 and 1 and repetition_penalty >= 0")
 device = "cuda"
 ckpt = torch.load(ROOT / f"{args.name}.pt", map_location="cpu", weights_only=True)   # only plain data, never code
 model = Arke0(Config(**ckpt["config"])).to(device)
@@ -121,12 +128,12 @@ def prompts(lang, n):
 
 @torch.no_grad()
 def continue_text(ids, setting, seed):
-    t, k, p = setting
+    t, k, p, r = setting
     torch.manual_seed(seed)
     idx = torch.tensor([ids], dtype=torch.long, device=device)
     with torch.autocast(device_type="cuda", dtype=torch.bfloat16):      # as in sample_stats.py
         idx = model.generate(idx, args.tokens, temperature=t, top_k=int(k) or None, top_p=p or None,
-                             stop_token=eot)
+                             repetition_penalty=r or None, stop_token=eot)
     new = idx[0, len(ids):].tolist()
     stopped = eot in new
     text = tok.decode(new[:new.index(eot)] if stopped else new)

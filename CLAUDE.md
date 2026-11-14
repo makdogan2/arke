@@ -60,7 +60,7 @@ AI is my collaborator, not my replacement: I keep the understanding and the cont
   loops, with real validation text as the reference) in 500 samples per model; `--temperature`,
   `--top_k` (0 = off), `--top_p` and `--repetition_penalty` change the sampling (repetition depends
   strongly on them; a penalty of 1.2 already repeats less than real text).
-  `blind_pairs.py` writes blind A/B pairs of two sampling settings into `runs/blind/pairs.txt` for
+  `blind_pairs.py` writes blind A/B pairs of two sampling settings (`T K P [penalty]`) into `runs/blind/pairs.txt` for
   Mehmet to judge; `--score` counts them. It never overwrites a `pairs.txt` (it may hold his choices).
   `runs/blind/claude_choices.txt` holds Claude's own blind choices (12 Nov), not scored until Mehmet
   has filled his: `--score --choices claude_choices.txt --agree pairs.txt`.

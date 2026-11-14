@@ -102,8 +102,9 @@ Work is saved in small shards, so after a crash the same command continues where
   sampling, `--repetition_penalty` makes tokens already in the context less likely, and `--top_k 0`
   turns top-k off.
 - `blind_pairs.py` continues the beginnings of 50 real validation documents (25 TR, 25 EN) once with
-  each of two settings (`--first` and `--second`: temperature, top_k, top_p; 0 turns a cut off;
-  defaults 0.8 / 50 / 0 and 1.0 / 0 / 0.9). Which one is A is random per pair and kept in `key.json`.
+  each of two settings (`--first` and `--second`: temperature, top_k, top_p and optionally
+  repetition_penalty; 0 turns any of the last three off; defaults 0.8 / 50 / 0 and 1.0 / 0 / 0.9).
+  Which one is A is random per pair and kept in `key.json`.
   A reader writes A, B or = for every pair; `--score` counts the wins per language with a two-sided
   sign test. `--choices` scores another filled copy (say, an LLM judge's) and `--agree` counts how
   often two judges chose the same.

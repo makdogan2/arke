@@ -17,6 +17,13 @@ parser.add_argument("--n_embd",  type=int, default=Config.n_embd)
 parser.add_argument("--n_head",  type=int, default=Config.n_head)
 parser.add_argument("--dropout", type=float, default=Config.dropout,
                     help="dropout rate; 0 for pretraining on plenty of data (measured in DEFTER.md)")
+parser.add_argument("--block_size", type=int, default=Config.block_size,
+                    help="context length in tokens (the position table has this many rows)")
+parser.add_argument("--batch_size", type=int, default=64,
+                    help="windows per training step; keep batch_size x block_size fixed to keep the token budget")
+parser.add_argument("--seq-warmup", type=int, default=0,
+                    help="sequence length warmup: for this many steps train on windows of half the block size, "
+                         "twice as many per step (same tokens), then on full windows; 0 turns it off")
 parser.add_argument("--name", default="arke0_bpe",
                     help="<name>.pt is the best model, <name>_last.pt the latest state, runs/<name>.json the log")
 parser.add_argument("--data", default="data",
@@ -41,7 +48,7 @@ parser.add_argument("--until", default=None,
                     help="stop this session at this clock time, e.g. 08:00 (tomorrow if it has passed today)")
 args = parser.parse_args()
 
-batch_size = 64
+batch_size = args.batch_size
 max_iters  = args.max_iters
 warmup     = 200
 eval_every = args.eval_every
@@ -96,12 +103,14 @@ def get_lr(it):
     ratio = (it - warmup) / (max_iters - warmup)     # cosine decay
     return min_lr + 0.5 * (max_lr - min_lr) * (1 + math.cos(math.pi * ratio))
 
-def get_batch(data, ix=None):
-    """Random windows for training; estimate_loss passes its fixed windows as `ix`."""
+def get_batch(data, ix=None, T=None, B=None):
+    """Random windows for training; estimate_loss passes its fixed windows as `ix`.
+    T, B: window length and number of windows, by default the block size and the batch size."""
+    T = T or cfg.block_size
     if ix is None:
-        ix = torch.randint(len(data) - cfg.block_size - 1, (batch_size,)).tolist()   # torch RNG: saved in checkpoints
-    # one read of block_size+1 tokens per window: x is the window, y the same window shifted by one
-    buf = torch.from_numpy(np.stack([data[i:i + cfg.block_size + 1] for i in ix]).astype(np.int64))
+        ix = torch.randint(len(data) - T - 1, (B or batch_size,)).tolist()   # torch RNG: saved in checkpoints
+    # one read of T+1 tokens per window: x is the window, y the same window shifted by one
+    buf = torch.from_numpy(np.stack([data[i:i + T + 1] for i in ix]).astype(np.int64))
     buf = buf.pin_memory().to(device, non_blocking=True)   # pinned memory: the copy runs while the CPU moves on
     return buf[:, :-1].contiguous(), buf[:, 1:].contiguous()
 
@@ -155,7 +164,7 @@ def save(path, step):
         "best_val": best_val,
         "train": dict(batch_size=batch_size, max_iters=max_iters, warmup=warmup,
                       max_lr=max_lr, min_lr=min_lr, eval_every=eval_every, save_every=save_every,
-                      deterministic=deterministic),
+                      deterministic=deterministic, seq_warmup=seq_warmup),
         "history": history,
         "elapsed": time.time() - t0,
         "rng": {"cpu": torch.get_rng_state(), "cuda": torch.cuda.get_rng_state()},
@@ -171,6 +180,7 @@ if ckpt:
         tr[k] for k in ("batch_size", "max_iters", "warmup", "max_lr", "min_lr"))
     # same eval and save schedule as before the interruption, so the log keeps its spacing
     eval_every, save_every = tr.get("eval_every", eval_every), tr.get("save_every", save_every)
+    seq_warmup = tr.get("seq_warmup", 0)
     model = Arke0(cfg).to(device)
     model.load_state_dict(ckpt["model"])
     opt = make_optimizer(model)
@@ -181,8 +191,11 @@ if ckpt:
     torch.cuda.set_rng_state(ckpt["rng"]["cuda"])   # same CUDA generator -> same dropout masks
     print(f"resumed {ckpt_last.name} at step {start_step} | best val {best_val:.4f}")
 else:
-    cfg = Config(vocab_size=meta["vocab_size"], n_layer=args.n_layer,
+    cfg = Config(vocab_size=meta["vocab_size"], block_size=args.block_size, n_layer=args.n_layer,
                  n_embd=args.n_embd, n_head=args.n_head, dropout=args.dropout)
+    seq_warmup = args.seq_warmup
+    if seq_warmup and cfg.block_size % 2:
+        parser.error("--seq-warmup trains on half windows first: --block_size must be even")
     model = Arke0(cfg).to(device)
     opt = make_optimizer(model)
     start_step, best_val = 0, float("inf")
@@ -196,12 +209,17 @@ eval_windows = {name: fixed_windows(data) for name, data in eval_sets.items()}
 
 # compile fuses small GPU ops (layernorm, gelu, adds) into bigger kernels; the first steps are slow
 # because it compiles then. Weights stay shared with `model`, which we save and use for generate().
-fwd = torch.compile(model) if args.compile else model
+# With --seq-warmup the model sees two window shapes. By default torch.compile answers a second shape by
+# compiling a "dynamic" version for any length, which can be slower; dynamic=False compiles each of the two
+# shapes separately instead. Without warmup there is one shape and the call is the same as before.
+fwd = (torch.compile(model, dynamic=False if seq_warmup else None) if args.compile else model)
 
 n_params = sum(p.numel() for p in model.parameters())   # tied head is counted once
 # scaling laws use parameters without the embedding lookup tables
 n_params_non_emb = n_params - model.tok_emb.weight.numel() - model.pos_emb.weight.numel()
 print(f"config: {asdict(cfg)} | data: {rel(data_dir, ROOT)} | compile: {args.compile} | deterministic: {deterministic}")
+print(f"batch: {batch_size} x {cfg.block_size} tokens"
+      + (f" | seq warmup: {2 * batch_size} x {cfg.block_size // 2} for the first {seq_warmup} steps" if seq_warmup else ""))
 print(f"parameters: {n_params/1e6:.2f}M ({n_params_non_emb/1e6:.2f}M without embeddings)")
 print(f"tokens seen at end: {max_iters*batch_size*cfg.block_size/1e6:.0f}M "
       f"({max_iters*batch_size*cfg.block_size/len(train_data):.1f} epochs)")
@@ -219,6 +237,7 @@ def write_run_log():
                                "max_iters": max_iters,
                                "max_lr": max_lr,
                                "deterministic": deterministic,
+                               "seq_warmup": seq_warmup,
                                "train_time": time.time() - t0,
                                "best_val": best_val,
                                "history": history}, indent=2))
@@ -290,7 +309,10 @@ for it in range(start_step, max_iters + 1):
     if it == max_iters:        # the last step only evaluates
         break
 
-    X, Y = get_batch(train_data)
+    if it < seq_warmup:      # sequence length warmup: half-length windows, twice as many (same tokens per step)
+        X, Y = get_batch(train_data, T=cfg.block_size // 2, B=2 * batch_size)
+    else:
+        X, Y = get_batch(train_data)
     with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
         _, loss = fwd(X, Y)
     opt.zero_grad(set_to_none=True)

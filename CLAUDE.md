@@ -48,6 +48,9 @@ AI is my collaborator, not my replacement: I keep the understanding and the cont
 - `train.py --data <folder>` reads those files with memmap; `--resume` continues from `<name>_last.pt`.
   `torch.compile` needs `triton-windows` (installed); `--no-compile` turns it off.
   `--deterministic` makes runs bit-identical (same seed, also across `--resume`), at no measured speed cost.
+  `--block_size` / `--batch_size` (defaults 256 / 64) and `--seq-warmup N` (half-length windows, twice
+  as many, for the first N steps; 14 Nov) exist; with all three at their defaults a run is bit-identical
+  to the train.py before them.
 - Old pipeline (`data_download.py` -> `tokenizer_bpe.py` -> `data/bpe.pt`, vocab 8192) is what
   `arke0_bpe.pt` and the old size experiment (`runs/xs`, `s`, `m`, `l`) were trained on; the current train.py no longer reads it.
 - `<|endoftext|>` is a special token (id 0) separating documents.
@@ -77,3 +80,11 @@ AI is my collaborator, not my replacement: I keep the understanding and the cont
 - Size experiment on `data/v2` (`arke0_clean`'s recipe, 2.0B tokens): `v2_xs_last.pt` 7.42M 3.9085,
   `v2_s_last.pt` 17.03M 3.5872, `v2_m_last.pt` 33.72M 3.3937 (full v2 val). `plot_scaling.py` draws
   them with `arke0_clean` into `docs/scaling.png`; `runs/` stays out of git.
+- 15 Nov experiments at v2_xs size (full v2 val): `v2_xs_512_last.pt` (block 512, batch 32) 3.8650,
+  `v2_xs_512w_last.pt` (same + `--seq-warmup 12000`) 3.8496; `v2_xs_apos_last.pt` on `data/v2_apos`
+  (apostrophe tokenizer, `--data data/v2_apos` to measure it) TR 1.0188 / EN 0.9739 per char, no gain
+  over the v2_xs seeds (TR 1.0168–1.0184, EN 0.9731–0.9740). `plot_seq_warmup.py` draws the warmup
+  runs into `docs/seq_warmup.png`. `data/v2_apos` keeps only the tokenizer, meta and val files (enough
+  to measure `v2_xs_apos`; its train.bin and the junction to `data/v2/prep/clean` were removed). The
+  `tok/` work folders of `data/prep`, `data/v2/prep` were deleted too: `.bin` files are built, and
+  rebuilding them would tokenize again (~11 min).

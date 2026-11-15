@@ -92,7 +92,10 @@ Work is saved in small shards, so after a crash the same command continues where
 - `data_prep.py --smoke` runs the whole pipeline on ~20 MB per source into `data/prep_smoke/`
   in a few minutes; progress goes to `logs/data_prep.log`.
 - `train.py` options: model size (`--n_layer --n_embd --n_head`), `--data <folder>`, `--max-iters`,
-  `--eval-every`, `--save-every`, `--seed`, `--no-compile`, `--deterministic`.
+  `--eval-every`, `--save-every`, `--seed`, `--no-compile`, `--deterministic`. `--block_size` (default
+  256) and `--batch_size` (default 64) set the window length and windows per step; keep their product
+  to keep the token budget. `--seq-warmup N` trains the first N steps on half-length windows, twice
+  as many per step, then on full windows.
 - `sample.py --seed` picks the random draws (default 1337; the same command gives the same text).
   It stops a sample at `<|endoftext|>` (`generate(..., stop_token=...)`) instead of starting a new,
   unrelated document; the other scripts keep generating to the token limit, as their results were
@@ -362,8 +365,54 @@ baseline.
 Turkish text needs 1.2% fewer tokens and English 0.2% fewer, and a word with an apostrophe drops from
 4.00 to 3.10 tokens. The vocabulary spends 101 entries on apostrophe suffixes instead of 14. A suffix
 now always maps to the same token (`'de`, `'nın`), so the model no longer has to learn that
-`'d + e` and `' + de` mean the same thing. Whether that lowers the loss per character is a
-separate question, because the answer needs the data tokenized again and the model retrained.
+`'d + e` and `' + de` mean the same thing.
+
+**Does it lower the loss?** The cleaned `data/v2` shards were tokenized again with the new tokenizer
+(`data/v2_apos`: the same documents and validation split, 0.67% fewer training tokens), and v2_xs was
+trained on it with the same recipe (122,000 steps × 64 × 256 tokens). Loss per token is not
+comparable between tokenizers, since a token covers a different amount of text, so the comparison is
+per character, against the three v2_xs seeds:
+
+| Model | TR / char | EN / char |
+|---|---|---|
+| v2_xs, GPT-2 rule (3 seeds) | 1.0168 – 1.0184 | 0.9731 – 0.9740 |
+| v2_xs_apos, apostrophe rule | 1.0188 | 0.9739 |
+
+No gain: English falls inside the seeds' range and Turkish is 0.0004 above the highest seed. At this
+size the cleaner suffix tokens neither help nor hurt measurably, so the tokenizer stays as it is.
+
+### Sequence length warmup
+
+Models here read 256 tokens of context. A test on 27 October with the 98M model found 512 tokens
+learning more slowly at first, so the context stayed at 256. Sequence length warmup
+([Li et al. 2022](https://arxiv.org/abs/2108.06084)) starts training on short sequences and moves
+to the full length later. `train.py --seq-warmup N` does a two-step version: for the first N steps
+the windows are half the block size and there are twice as many, so every step still has the same
+number of tokens and the learning rate schedule is unchanged. Li et al. raise the length linearly
+and report that a two-step switch was unstable at their large learning rates; ours is lower.
+
+v2_xs's recipe with `--block_size 512 --batch_size 32` (the same 2.0B tokens), once without warmup
+and once with `--seq-warmup 12000` (the first 10%: 64 × 256, then 32 × 512):
+
+| Model | Full v2 val | TR / char | EN / char |
+|---|---|---|---|
+| 512, no warmup | 3.8650 | 1.0074 | 0.9629 |
+| 512, warmup 12,000 steps | **3.8496** | **1.0035** | **0.9589** |
+| *v2_xs, 256 (scored on 256-token windows)* | *3.9085* | *1.0184* | *0.9740* |
+
+![Sequence length warmup: val loss of both runs, and the gap after the switch](docs/seq_warmup.png)
+
+The figure shows the validation loss measured during training (`plot_seq_warmup.py`, from the
+`runs/` logs).
+
+Warmup lowers the loss by 0.0154 per token, about 0.004 per character in both languages. That is
+6× the seed-to-seed spread of v2_xs (std ≈ 0.0025). During the warmup itself the model looks worse,
+because it is scored on 512-token windows while positions 256–511 of its position table are still
+untrained. One evaluation (1,000 steps) after the switch it is already ahead of the run without
+warmup and stays ahead to the end; the gap shrinks from 0.037 to 0.015. Both runs train at the same
+speed (20 s per 1,000 steps). Limits: one seed per side, 7.4M parameters, one warmup length. At this
+size 512 tokens of context also end clearly ahead of 256, unlike the early 98M test of 27 October,
+though the 256 model is scored on shorter windows and so gets less context per prediction.
 
 ## Quantization
 
@@ -472,6 +521,7 @@ sample_stats.py    counts cleaned-away whitespace and repetition in generated sa
 blind_pairs.py     blind pairwise comparison of two sampling settings, judged by a person
 plot_scaling.py    plots the model size experiment from the runs/<name>.json logs
 docs/scaling.png   the figure plot_scaling.py draws, shown in Model size
+plot_seq_warmup.py plots the sequence length warmup experiment into docs/seq_warmup.png
 count_junk.py      measures leftover junk (CSS, category lines, references) in the corpus
 tokenizer_bpe.py   earlier pipeline: BPE tokenizer + data/bpe.pt (vocab 8192)
 experiments/       learning-phase scripts: char tokenizer, BPE from scratch, attention, quantization and packing demos,

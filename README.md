@@ -414,6 +414,38 @@ speed (20 s per 1,000 steps). Limits: one seed per side, 7.4M parameters, one wa
 size 512 tokens of context also end clearly ahead of 256, unlike the early 98M test of 27 October,
 though the 256 model is scored on shorter windows and so gets less context per prediction.
 
+**At 98M.** The same switch was tried on arke0_clean's recipe: `--block_size 512 --batch_size 32
+--seq-warmup 12000`, the same 2.0B tokens, saved as `arke0_512w`.
+
+| Model | Scored on | Full v2 val | TR / char | EN / char |
+|---|---|---|---|---|
+| arke0_clean (256) | 256-token windows | 3.1593 | 0.8202 | 0.7912 |
+| arke0_512w (512, warmup) | 512-token windows | **3.0859** | **0.8018** | **0.7722** |
+| arke0_512w (512, warmup) | 256-token windows | 3.1718 | 0.8235 | 0.7943 |
+
+- **With all 512 tokens of context,** the new model is 0.073 per token better. That is about 0.019
+  per character in both languages, and about 30 times the seed spread measured at 7.4M.
+- **On the same 256-token windows,** it is 0.0125 worse than arke0_clean.
+- **The 7.4M models show the same pattern** on 256-token windows: v2_xs 3.9085, 512 without warmup
+  3.9474, 512 with warmup 3.9315.
+
+So the gain comes from using the longer context, not from better predictions at short range.
+
+A likely reason: in 512-token windows only half of the predictions have at most 255 tokens of
+context, while a 256 model trains on nothing else. Warmup gives these short-context predictions
+extra training and narrows the gap.
+
+Limits:
+- There is no 98M run with 512 tokens and no warmup. So warmup's own share of the 98M gain is not
+  measured.
+- `quantize.py` always scores on the model's own block size. The 256-token row was measured with the
+  same computation and the window length as a parameter. That check reproduced arke0_clean's numbers
+  exactly.
+
+Training took 7 h 6 min of GPU time, including about 45 minutes shared with a game (arke0_clean:
+5 h 57 min). It was stopped twice, once by a power cut and once by hand. Both times `--resume`
+continued from the last checkpoint.
+
 ## Quantization
 
 `quantize.py` makes `arke0_web_last.pt` smaller with code written from scratch, without a

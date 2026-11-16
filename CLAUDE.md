@@ -88,3 +88,10 @@ AI is my collaborator, not my replacement: I keep the understanding and the cont
   to measure `v2_xs_apos`; its train.bin and the junction to `data/v2/prep/clean` were removed). The
   `tok/` work folders of `data/prep`, `data/v2/prep` were deleted too: `.bin` files are built, and
   rebuilding them would tokenize again (~11 min).
+- 16–17 Nov: `arke0_512w_last.pt` is `arke0_clean`'s recipe with `--block_size 512 --batch_size 32
+  --seq-warmup 12000` (98.00M params, 7 h 6 min).
+  - Full v2 val on its own 512-token windows: 3.0859 (TR 0.8018 / EN 0.7722 per char).
+  - On 256-token windows: 3.1718, which is worse than `arke0_clean`. The 7.4M 512 models also do
+    worse on 256-token windows.
+  - It is not the current model unless Mehmet decides so.
+  - `quantize.py` always scores on the model's `block_size`.

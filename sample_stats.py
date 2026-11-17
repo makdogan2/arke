@@ -39,6 +39,10 @@ parser.add_argument("--top_p", type=float, default=None,
                     help="nucleus sampling: keep the most likely tokens until their probabilities reach this sum")
 parser.add_argument("--repetition_penalty", type=float, default=None,
                     help="tokens already in the context get less likely (1.2 is common); off by default")
+parser.add_argument("--kv-cache", action="store_true",
+                    help="generate with the KV cache (model.generate's kv_cache): much faster and far less GPU "
+                         "memory. The numbers come out the same within their ± but not digit for digit: in bf16 "
+                         "the rounding differs, so other samples are drawn than without it")
 args = parser.parse_args()
 if args.temperature <= 0:
     parser.error("--temperature must be above 0: generate divides the logits by it")
@@ -46,6 +50,8 @@ if args.top_p is not None and not 0 < args.top_p <= 1:
     parser.error("--top_p must be above 0 and at most 1")
 if args.repetition_penalty is not None and args.repetition_penalty <= 0:
     parser.error("--repetition_penalty must be above 0: generate divides the logits by it")
+if args.top_k < 0:
+    parser.error("--top_k must be 0 (off) or a positive number of tokens")
 device = "cuda"
 
 LOOP = 8                                 # whitespace characters in a row that count as a loop
@@ -105,7 +111,7 @@ def generate_all(model, tok, eot):
             with torch.autocast(device_type="cuda", dtype=torch.bfloat16):    # as in train.py's eval
                 idx = model.generate(idx, args.tokens, temperature=args.temperature,
                                      top_k=args.top_k or None, top_p=args.top_p,
-                                     repetition_penalty=args.repetition_penalty)
+                                     repetition_penalty=args.repetition_penalty, kv_cache=args.kv_cache)
             out += idx[:, drop:].tolist()
     return out
 
@@ -169,7 +175,8 @@ for name in args.names:
 
 source = f"from {args.prompts}" if args.prompts else "from <|endoftext|>"
 print(f"{args.n} samples x {args.tokens} tokens per model, {source}, temperature {args.temperature}, "
-      f"top_k {args.top_k}, top_p {args.top_p}, repetition_penalty {args.repetition_penalty}, seed {args.seed}")
+      f"top_k {args.top_k}, top_p {args.top_p}, repetition_penalty {args.repetition_penalty}, seed {args.seed}"
+      + (", KV cache" if args.kv_cache else ""))    # said only when it is on: the output without it stays as it was
 print(f"{'model':<18} {'lang':<4} {'n':>4} | {'with pattern':>13} | {'removed/1k ch':>13} | {'loop (8+)':>13} | {'longest':>7} "
       f"| {'seq-rep-4':>13} | {'word loop':>13}")
 for name, lang, n, pat, rem, loop, longest, rep, word_loop in rows:

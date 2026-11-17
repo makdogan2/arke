@@ -69,6 +69,8 @@ if args.resume and args.overwrite:
 if on_disk and not args.resume and not args.overwrite:
     parser.error(f"the name {args.name} is taken ({', '.join(on_disk)} on disk) and a new run would replace it: "
                  "continue it with --resume, pick another --name, or pass --overwrite to start over")
+if args.resume and not ckpt_last.exists():
+    parser.error(f"--resume continues from {ckpt_last.name}, and that file is not on disk")
 # load to CPU: RNG states must stay CPU tensors; weights and optimizer state
 # are copied to the GPU by load_state_dict
 ckpt = torch.load(ckpt_last, map_location="cpu", weights_only=True) if args.resume else None
@@ -335,6 +337,7 @@ print(f"saved: {ckpt_last.name} | best: {ckpt_best.name} (val {best_val:.4f})")
 print("log:", write_run_log())
 
 start = torch.zeros((1, 1), dtype=torch.long, device=device)
+model.eval()     # estimate_loss leaves the model in train mode: without this, dropout stays on while sampling
 out = model.generate(start, 300, temperature=0.8, top_k=50)[0].tolist()
 print("\n--- Arke speaks ---")
 print(tok.decode(out, skip_special_tokens=False).replace("<|endoftext|>", "\n\n<|endoftext|>\n\n"))

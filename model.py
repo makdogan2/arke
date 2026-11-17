@@ -22,6 +22,10 @@ class MultiHeadAttention(nn.Module):
         self.proj   = nn.Linear(cfg.n_embd, cfg.n_embd, bias=False)
         self.drop_p = cfg.dropout
         self.resid_drop = nn.Dropout(cfg.dropout)
+        # For the KV cache (forward_cached): row p says which positions position p may look at, 0 .. p.
+        # A buffer moves to the GPU with the model; persistent=False keeps it out of the checkpoints.
+        self.register_buffer("causal", torch.tril(torch.ones(cfg.block_size, cfg.block_size, dtype=torch.bool)),
+                             persistent=False)
 
     def forward(self, x):
         B, T, C = x.shape
@@ -36,6 +40,35 @@ class MultiHeadAttention(nn.Module):
             dropout_p=self.drop_p if self.training else 0.0)
 
         y = y.transpose(1, 2).contiguous().view(B, T, C)
+        return self.resid_drop(self.proj(y))
+
+    def forward_cached(self, x, cache, start):
+        """Attention while generating with a KV cache: the same result as forward, computed for the NEW
+        positions only.
+        x: (B, t, C), the new positions; the first of them is position `start` of the sequence.
+        cache: this layer's dict with two tables, "k" and "v", each (B, heads, block_size, head_size).
+        Row p of a table holds the key / value of position p. Earlier calls wrote the rows before `start`;
+        this call writes rows start .. start + t - 1. The first call creates the tables."""
+        B, t, C = x.shape
+        q, k, v = self.qkv(x).split(C, dim=2)
+        q = q.view(B, t, self.n_head, C // self.n_head).transpose(1, 2)
+        k = k.view(B, t, self.n_head, C // self.n_head).transpose(1, 2)
+        v = v.view(B, t, self.n_head, C // self.n_head).transpose(1, 2)
+        if not cache:
+            # same type as the keys (bf16 under autocast); the rows not written yet are masked out below
+            block_size = self.causal.size(0)
+            cache["k"] = k.new_zeros(B, self.n_head, block_size, C // self.n_head)
+            cache["v"] = v.new_zeros(B, self.n_head, block_size, C // self.n_head)
+        cache["k"][:, :, start:start + t] = k
+        cache["v"][:, :, start:start + t] = v
+        # The mask rows of the new positions, (t, block_size), True = may look: each one sees the table
+        # rows up to itself. The query looks at the whole table through the mask instead of at a slice
+        # that grows with every token: all steps then work on tensors of one size, which is fast and does
+        # not pile up GPU memory.
+        y = F.scaled_dot_product_attention(
+            q, cache["k"], cache["v"], attn_mask=self.causal[start:start + t],
+            dropout_p=self.drop_p if self.training else 0.0)
+        y = y.transpose(1, 2).contiguous().view(B, t, C)
         return self.resid_drop(self.proj(y))
 
 
@@ -63,6 +96,13 @@ class Block(nn.Module):
 
     def forward(self, x):
         x = x + self.attn(self.ln1(x))   # önce normalize, sonra topla
+        x = x + self.ff(self.ln2(x))
+        return x
+
+    def forward_cached(self, x, cache, start):
+        """forward for the new positions only (KV cache). LayerNorm and the feed-forward layer work on
+        each position by itself, so only attention needs the cache."""
+        x = x + self.attn.forward_cached(self.ln1(x), cache, start)
         x = x + self.ff(self.ln2(x))
         return x
 
@@ -107,9 +147,24 @@ class Arke0(nn.Module):
             loss = None
         return logits, loss
 
+    def forward_cached(self, idx_new, caches, start):
+        """Generating with a KV cache: the logits of the last position, (B, 1, vocab), computed from the
+        new tokens only.
+        idx_new: (B, t), the tokens the blocks have not seen yet; the first of them is position `start`.
+        caches: one dict per block (see MultiHeadAttention.forward_cached). They hold the keys and values
+        of positions 0 .. start - 1; this call adds the new positions.
+        Why this is allowed: attention is causal, a position only looks back. Appending a token therefore
+        changes nothing that the earlier positions computed, and their keys and values can be kept
+        instead of being computed again at every step."""
+        pos = torch.arange(start, start + idx_new.size(1), device=idx_new.device)
+        x = self.drop(self.tok_emb(idx_new) + self.pos_emb(pos))
+        for blok, cache in zip(self.blocks, caches):
+            x = blok.forward_cached(x, cache, start)
+        return self.head(self.ln_f(x[:, -1:, :]))
+
     @torch.no_grad()
     def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, stop_token=None, top_p=None,
-                 repetition_penalty=None):
+                 repetition_penalty=None, kv_cache=False):
         """Append up to max_new_tokens sampled tokens to every row of idx.
         top_p: sample only from the smallest set of most likely tokens whose probabilities add up to
         at least top_p (nucleus sampling, Holtzman et al. 2019). None keeps every token.
@@ -117,11 +172,25 @@ class Arke0(nn.Module):
         logit divided by this number if positive and multiplied by it if negative, before temperature
         (Keskar et al. 2019, CTRL). Above 1 makes repeats less likely; None (or 1) changes nothing.
         stop_token: a row that samples it is finished; its later positions are filled with stop_token,
-        and the loop ends early once every row is finished. None keeps generating to max_new_tokens."""
+        and the loop ends early once every row is finished. None keeps generating to max_new_tokens.
+        kv_cache: keep every block's keys and values, and run only the newest token through the blocks
+        instead of the whole window at every step. Much faster for a batch of rows. The logits are the same
+        up to rounding; in bf16 that rounding can change which token is sampled, so it is off by default
+        and the same seed keeps giving the same text. It applies while the sequence fits in block_size:
+        once the window slides, every token's position changes and the whole window is computed again."""
         done = torch.zeros(idx.size(0), dtype=torch.bool, device=idx.device)   # one flag per row
+        caches = [{} for _ in self.blocks] if kv_cache else None    # one table of keys and values per block
+        n_cached = 0                                                 # how many positions are in the tables
         for _ in range(max_new_tokens):
             idx_kirp = idx[:, -self.cfg.block_size:]   # pencereyi aşma
-            logits, _ = self(idx_kirp)
+            if caches is not None and idx.size(1) > self.cfg.block_size:
+                caches = None                           # the window slides from here on: the tables no longer fit
+            if caches is not None:
+                # the first step sends the whole prompt, every later step only the token just sampled
+                logits = self.forward_cached(idx[:, n_cached:], caches, n_cached)
+                n_cached = idx.size(1)
+            else:
+                logits, _ = self(idx_kirp)
             logits = logits[:, -1, :]                   # sadece son pozisyon
             if repetition_penalty is not None:
                 seen = logits.gather(1, idx_kirp)       # the scores of the tokens this row has already seen

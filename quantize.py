@@ -29,7 +29,12 @@ parser.add_argument("--packed", action="store_true",
 parser.add_argument("--save", help="with --packed: write the packed model to this file, e.g. arke0_web_q4.pt")
 parser.add_argument("--load", help="measure a file written by --save, without the original checkpoint")
 parser.add_argument("--data", default="data", help="folder with the val sets and meta.json, e.g. data/v2")
+parser.add_argument("--window", type=int, default=None,
+                    help="score on windows of this many tokens instead of the model's block_size (it cannot be "
+                         "longer): puts models trained with different context lengths on the same windows")
 args = parser.parse_args()
+if args.window is not None and args.sample:
+    parser.error("--window sets the windows the loss is measured on; --sample measures no loss")
 if args.load and (args.packed or args.save or args.embedding):
     parser.error("--load takes everything from the file: no --packed, --save or --embedding")
 if args.packed and (args.scheme != "asym" or any(b not in (4, 16) for b in args.bits)):
@@ -94,6 +99,10 @@ def packed_bytes(packed):
 # weights_only=True: only tensors, dicts, lists, numbers and strings can come out of the file, never code
 ckpt = torch.load(ROOT / (args.load or f"{args.name}.pt"), map_location="cpu", weights_only=True)
 cfg = Config(**ckpt["config"])
+if args.window is not None and not 0 < args.window <= cfg.block_size:
+    parser.error(f"--window must be between 1 and the model's block_size ({cfg.block_size}): "
+                 "the position table has no rows past it")
+window = args.window or cfg.block_size                        # tokens per scored window
 model = Arke0(cfg).to(device)
 model.eval()
 
@@ -110,6 +119,8 @@ n_quant = sum(params[n].numel() for n in chosen)
 source = f"{args.load} ({(ROOT / args.load).stat().st_size / 1e6:.1f} MB on disk)" if args.load else args.name
 print(f"{source}: {n_total / 1e6:.2f}M parameters, quantizing {n_quant / 1e6:.2f}M "
       f"({n_quant / n_total:.1%}) in groups of {args.group}, scheme {args.scheme}, the rest stays bf16")
+if args.window:
+    print(f"scoring on windows of {window} tokens; the model's block_size is {cfg.block_size}")
 
 def load_packed(f):
     """Fill the model from a --save file alone: the bf16 rest as it is, the 4-bit weights unpacked."""
@@ -128,8 +139,8 @@ val_sets = {s: np.memmap(data_dir / f"{s}.bin", dtype=np.uint16, mode="r") for s
 
 @torch.no_grad()
 def full_loss(data, batch=256):
-    """Mean loss over every non-overlapping block_size window of the file: no sampling noise."""
-    T = cfg.block_size
+    """Mean loss over every non-overlapping window of the file (block_size tokens, or --window): no sampling noise."""
+    T = window
     n = (len(data) - 1) // T
     total = 0.0
     for b in range(0, n, batch):

@@ -70,7 +70,7 @@ Work is saved in small shards, so after a crash the same command continues where
 .venv\Scripts\python.exe train.py --name arke1      # train -> arke1.pt (best val), arke1_last.pt, runs/arke1.json
 .venv\Scripts\python.exe train.py --name arke1 --resume   # continue an interrupted run
 .venv\Scripts\python.exe sample.py --name arke1     # generate text from the checkpoint
-.venv\Scripts\python.exe -m unittest test_clean     # tests for the cleaning rules
+.venv\Scripts\python.exe -m unittest test_clean test_model test_train   # tests: cleaning rules, model and generate, checkpoint guard
 .venv\Scripts\python.exe quantize.py --scheme asym  # fake quantization at 16/8/4/2 bits -> loss table
 .venv\Scripts\python.exe quantize.py --scheme asym --bits 16 4 --packed --save arke0_web_q4.pt
 .venv\Scripts\python.exe quantize.py --load arke0_web_q4.pt   # measure the 4-bit file alone
@@ -88,6 +88,8 @@ Work is saved in small shards, so after a crash the same command continues where
     tokenizer differs from the one the data was tokenized with.
   - `--embedding` also quantizes the token embedding.
   - `--sample` generates text instead of measuring the loss.
+  - `--window N` scores on windows of N tokens instead of the model's block size (N cannot be longer),
+    so models trained with different context lengths can be compared on the same windows.
 
 - `data_prep.py --smoke` runs the whole pipeline on ~20 MB per source into `data/prep_smoke/`
   in a few minutes; progress goes to `logs/data_prep.log`.
@@ -101,11 +103,14 @@ Work is saved in small shards, so after a crash the same command continues where
 - `sample.py --seed` picks the random draws (default 1337; the same command gives the same text).
   It stops a sample at `<|endoftext|>` (`generate(..., stop_token=...)`) instead of starting a new,
   unrelated document; the other scripts keep generating to the token limit, as their results were
-  measured that way.
+  measured that way. `--prompts "text" ...` continues your own texts instead of the four built-in
+  ones; `--tokens`, `--temperature`, `--top_k`, `--top_p` and `--repetition_penalty` set the length
+  and the sampling (defaults 200, 0.8, 50, off, off).
 - `sample_stats.py --prompts "text" ...` starts the samples from text instead of `<|endoftext|>`;
   `--temperature` and `--top_k` change the sampling (defaults 0.8 and 50); `--top_p` adds nucleus
   sampling, `--repetition_penalty` makes tokens already in the context less likely, and `--top_k 0`
-  turns top-k off.
+  turns top-k off. `--kv-cache` generates with the KV cache: 7× faster, the same numbers within their
+  ± (see [Generating with a KV cache](#generating-with-a-kv-cache)).
 - `blind_pairs.py` continues the beginnings of 50 real validation documents (25 TR, 25 EN) once with
   each of two settings (`--first` and `--second`: temperature, top_k, top_p and optionally
   repetition_penalty; 0 turns any of the last three off; defaults 0.8 / 50 / 0 and 1.0 / 0 / 0.9).
@@ -196,7 +201,7 @@ tokenizer, so the old model can be scored on the new validation set and only the
 | arke0_clean | cleaned data | 3.1593 | 0.8202 | 0.7912 | **0 / 500** | 2 (`\n\n`) |
 
 - **The loss does not move.** −0.0019 is less than the gap between two checkpoints of one run
-  (118k vs 122k: 0.0030) and than the seed-to-seed spread measured on v2_xs (std ≈ 0.0025, see
+  (118k vs 122k: 0.0030) and than the run-to-run spread measured on v2_xs (std ≈ 0.004, see
   [Model size](#model-size)). Whitespace is a small part of the text, and the cleaned validation set no
   longer contains the runs the old model was trained to predict.
 - **The generated text does change.** `sample_stats.py` generates 500 samples of 256 tokens per
@@ -273,8 +278,11 @@ add up to p, so the set is small where the model is sure and large where it is n
 | 0.8 | 0.9 | 16.6% ±1.0 | 5.4% ±1.0 | 0.2% ±0.2 |
 | *real text* | | *0.8% ±0.1* | *0.4% ±0.3* | |
 
-At temperature 1.0 and p 0.9 both repetition numbers match real text, while top-k 50 at the same
-temperature still had about 2× real text's seq-rep-4 (1.5%) and 8× its word loops (3.2%). Without any cut, the rare tokens of the
+At temperature 1.0 and p 0.9 both repetition numbers match real text within the error of 500
+samples, while top-k 50 at the same
+temperature still had about 2× real text's seq-rep-4 (1.5%) and 8× its word loops (3.2%). With 5,000 samples
+(generated with the KV cache; 2,000 without it agree) a gap to real text remains at p 0.9: seq-rep-4
+1.1% ±0.1 against 0.7%, and a word loop in 1.9% ±0.2 of the samples against 0.4%. Without any cut, the rare tokens of the
 tail break the text: words of the other language inside a sentence, half words, and whitespace the
 cleaning removes in 8.6% of samples. Read by eye, p 0.9 is fluent but drifts from its topic, like
 every setting at temperature 1.0. Nothing here measures meaning, so the defaults do not change.
@@ -331,8 +339,11 @@ eval from training, which reads 0.003–0.004 higher.
   4.6% more for v2_xs and 3.7% more for arke0_clean.
 - **Run-to-run noise is small next to the size effect.** v2_xs was trained three times, changing
   only the seed (initial weights and batches): 3.9085, 3.9042 and 3.9041 on the full validation
-  set, a standard deviation of about 0.0025. The steps between sizes are at least 0.19.
-- **What this does not show:** the noise was measured only at the smallest size, with three runs.
+  set, a standard deviation of about 0.0025. A fourth run repeated the first seed with
+  `--deterministic` and ended at 3.9133, 0.005 from its twin: the same seed does not give the same
+  result unless both runs are deterministic. All four runs together have a standard deviation of
+  0.0044. The steps between sizes are at least 0.19.
+- **What this does not show:** the noise was measured only at the smallest size, with four runs.
   Four points do not say where the curve flattens. Train times are rough: v2_xs took 57 min during
   the night and 38–41 min in the afternoon.
 
@@ -408,8 +419,8 @@ The figure shows the validation loss measured during training (`plot_seq_warmup.
 `runs/` logs).
 
 Warmup lowers the loss by 0.0154 per token, about 0.004 per character in both languages. That is
-6× the seed-to-seed spread of v2_xs (std ≈ 0.0025). During the warmup itself the model looks worse,
-because it is scored on 512-token windows while positions 256–511 of its position table are still
+3.5× the run-to-run spread of v2_xs (std ≈ 0.0044 over four runs). During the warmup itself the
+model looks worse, because it is scored on 512-token windows while positions 256–511 of its position table are still
 untrained. One evaluation (1,000 steps) after the switch it is already ahead of the run without
 warmup and stays ahead to the end; the gap shrinks from 0.037 to 0.015. Both runs train at the same
 speed (20 s per 1,000 steps). Limits: one seed per side, 7.4M parameters, one warmup length. At this
@@ -426,7 +437,7 @@ though the 256 model is scored on shorter windows and so gets less context per p
 | arke0_512w (512, warmup) | 256-token windows | 3.1718 | 0.8235 | 0.7943 |
 
 - **With all 512 tokens of context,** the new model is 0.073 per token better. That is about 0.019
-  per character in both languages, and about 30 times the seed spread measured at 7.4M.
+  per character in both languages, and about 17 times the run-to-run spread measured at 7.4M.
 - **On the same 256-token windows,** it is 0.0125 worse than arke0_clean.
 - **The 7.4M models show the same pattern** on 256-token windows: v2_xs 3.9085, 512 without warmup
   3.9474, 512 with warmup 3.9315.
@@ -440,9 +451,8 @@ extra training and narrows the gap.
 Limits:
 - There is no 98M run with 512 tokens and no warmup. So warmup's own share of the 98M gain is not
   measured.
-- `quantize.py` always scores on the model's own block size. The 256-token row was measured with the
-  same computation and the window length as a parameter. That check reproduced arke0_clean's numbers
-  exactly.
+- The 256-token rows are `quantize.py --window 256`: the same computation on shorter windows.
+  Without `--window` it scores on the model's own block size.
 
 Training took 7 h 6 min of GPU time, including about 45 minutes shared with a game (arke0_clean:
 5 h 57 min). It was stopped twice, once by a power cut and once by hand. Both times `--resume`
@@ -460,6 +470,44 @@ The 512-token samples are where the longer context should help, since arke0_clea
 the start of the text. Even there it repeats more. A lower loss does not have to mean better text, so
 **arke0_clean stays the main model.** Whether arke0_512w writes better text with a repetition penalty
 has not been tested.
+
+### Generating with a KV cache
+
+`generate` runs the whole context through the model for every new token. Attention is causal, so
+the keys and values of a token never change once they are computed. `generate(..., kv_cache=True)`
+keeps them in one table per block and runs only the newest token through the blocks.
+`experiments/kv_cache_demo.py` shows the idea on a single attention layer.
+
+arke0_clean, bf16, temperature 0.8, top-k 50, nothing else on the GPU:
+
+| Measurement | Plain | KV cache |
+|---|---|---|
+| `sample_stats.py`, 500 samples × 256 tokens | 49.6 s | **7.1 s** |
+| GPU memory PyTorch reserved (in use) | 12.5 GB (1.2 GB) | **1.6 GB** (1.6 GB) |
+| One batch, 100 × 256 tokens | 9.4 s | 0.9 s |
+| One batch, 100 × 512 tokens | 28.1 s | 19.6 s |
+| One prompt, 200 tokens | 0.5 s | 0.7 s |
+
+- **The same text in fp32.** On real validation text, fed one token at a time, the cached logits
+  differ from the full forward by at most 0.00024 and the most likely token never changes
+  (16 × 256 positions). 20 of 20 sampled rows come out identical.
+- **The same distribution in bf16, but not the same samples.** The two paths round differently: the
+  largest logit difference is 0.66 and the most likely token changes at 33 of 4,096 positions. That
+  is what bf16 itself costs against fp32 (0.51, 46 positions). Only 5–7 of 20 sampled rows stay
+  identical, while the statistics agree: seq-rep-4 is 12.2% ±0.8 with the cache and 11.9% ±0.8
+  without. So the cache is off by default, the same seed keeps giving the same text as before, and
+  `sample_stats.py --kv-cache` turns it on.
+- **Where it does not help.** Positions are learned and absolute. Once a text is longer than the
+  block size the window slides, every token gets a new position, and the tables no longer fit: from
+  there `generate` computes the whole window again (512 tokens: 1.4× faster instead of 10×). A model
+  with a longer block keeps its tables longer: `arke0_512w` (512-token block) writes 25 × 512 tokens
+  in 1.8 s instead of 9.8 s. For a single prompt there is nothing to gain.
+- **Memory.** Without the cache every step works on slightly larger tensors than the step before.
+  A likely reason for the 12.5 GB: PyTorch's allocator cannot reuse the smaller blocks it just freed.
+  With the cache every step's tensors have the same size.
+
+`test_model.py` checks that both paths write the same tokens on a small model (prompts of
+different lengths, the window sliding, stop token, repetition penalty).
 
 ## Quantization
 
@@ -560,8 +608,10 @@ data_download.py   Wikipedia download -> data/mix.txt
 data_prep.py       resumable data pipeline: download, clean, dedup, tokenizer, train/val .bin
 textclean.py       cleaning and filtering rules shared by the data scripts
 test_clean.py      tests for textclean.py
-model.py           Config dataclass + transformer (Arke0)
+model.py           Config dataclass + transformer (Arke0); generate with an optional KV cache
+test_model.py      tests for model.py: forward, generate, the KV cache (tiny model, CPU)
 train.py           training loop: memmap data, torch.compile, checkpoints + resume
+test_train.py      tests for train.py's checkpoint guard
 sample.py          text generation
 quantize.py        quantization from scratch: 8/4/2-bit loss table, 4-bit packing, --save / --load
 sample_stats.py    counts cleaned-away whitespace and repetition in generated samples, compares checkpoints
@@ -572,7 +622,7 @@ plot_seq_warmup.py plots the sequence length warmup experiment into docs/seq_war
 count_junk.py      measures leftover junk (CSS, category lines, references) in the corpus
 tokenizer_bpe.py   earlier pipeline: BPE tokenizer + data/bpe.pt (vocab 8192)
 experiments/       learning-phase scripts: char tokenizer, BPE from scratch, attention, quantization and packing demos,
-                   pre-tokenizer comparison (pretok_compare.py)
+                   pre-tokenizer comparison (pretok_compare.py), KV cache on one attention layer (kv_cache_demo.py)
 ```
 
 ## Roadmap
@@ -591,4 +641,6 @@ experiments/       learning-phase scripts: char tokenizer, BPE from scratch, att
   - [x] Real 4-bit packing and a standalone file: 1,174 MB checkpoint -> 73.6 MB, val +0.024
 - [x] Whitespace cleaning: arke0_clean, same loss, no more whitespace loops (0/500 samples vs 9/500)
 - [x] Model size experiment: 7.4M to 97.8M on the same 2.0B tokens, val 3.909 -> 3.159
+- [x] KV cache in `generate`: 500 samples in 7.1 s instead of 49.6 s, 1.6 GB of GPU memory instead of 12.5 GB
+- [x] Tests for the cleaning rules, the model, `generate` and the checkpoint guard
 - [ ] Arke-1 — a conversational assistant with tool use

@@ -93,5 +93,7 @@ AI is my collaborator, not my replacement: I keep the understanding and the cont
   - Full v2 val on its own 512-token windows: 3.0859 (TR 0.8018 / EN 0.7722 per char).
   - On 256-token windows: 3.1718, which is worse than `arke0_clean`. The 7.4M 512 models also do
     worse on 256-token windows.
-  - It is not the current model unless Mehmet decides so.
+  - It repeats more than `arke0_clean` in 500 samples. seq-rep-4: 15.4% vs 11.9% at the defaults,
+    1.7% vs 0.8% at T 1.0 / p 0.9, and 25.4% vs 19.0% for 512-token samples.
+  - So it is not the current model (Mehmet's decision, 17 Nov).
   - `quantize.py` always scores on the model's `block_size`.

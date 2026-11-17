@@ -446,6 +446,19 @@ Training took 7 h 6 min of GPU time, including about 45 minutes shared with a ga
 5 h 57 min). It was stopped twice, once by a power cut and once by hand. Both times `--resume`
 continued from the last checkpoint.
 
+**But it repeats more.** `sample_stats.py`, 500 samples per model with the same seeds:
+
+| Sampling | arke0_clean seq-rep-4 | arke0_512w seq-rep-4 | Real text |
+|---|---|---|---|
+| T 0.8, top-k 50, 256 tokens | 11.9% | 15.4% | 0.8% |
+| T 1.0, top-p 0.9, 256 tokens | 0.8% | 1.7% | 0.8% |
+| T 0.8, top-k 50, 512 tokens | 19.0% | 25.4% | 1.0% |
+
+The 512-token samples are where the longer context should help, since arke0_clean can no longer see
+the start of the text. Even there it repeats more. A lower loss does not have to mean better text, so
+**arke0_clean stays the main model.** Whether arke0_512w writes better text with a repetition penalty
+has not been tested.
+
 ## Quantization
 
 `quantize.py` makes `arke0_web_last.pt` smaller with code written from scratch, without a

@@ -5,6 +5,13 @@ Her aşamanın sonunda güncellenir.
 
 ## Şu anki aşama
 
+> **17 Kasım:** `arke0_512w`'nin örneklerine bakıldı. `sample_stats.py`, 500 örnek, aynı seed'ler; seq-rep-4 değerleri:
+> - Varsayılan ayar (T 0.8 / k 50): %15.4'e karşı `arke0_clean` %11.9.
+> - T 1.0 / p 0.9: %1.7'ye karşı %0.8.
+> - 512 token'lık örnekler: %25.4'e karşı %19.0.
+>
+> Yani loss'ta önde, ama üç ayarda da daha çok tekrar ediyor. Mehmet'in kararıyla ana model `arke0_clean_last` kaldı (Kararlar'da).
+>
 > **16–17 Kasım:** 98M modelde 512 + warmup eğitildi: `arke0_512w`, yani `arke0_clean` tarifi + `--block_size 512 --batch_size 32 --seq-warmup 12000`, aynı 2.0B token. Bir elektrik kesintisi ve bir oyun molası `--resume` ile atlatıldı. **Kendi bağlamında tam v2 val 3.0859** (TR 0.8018, EN 0.7722/ch); `arke0_clean` 256'da 3.1593 (0.8202 / 0.7912). 512 bağlamı kullanan model token başına 0.073, iki dilde karakter başına ~0.019 daha iyi. **Ama aynı 256'lık pencerelerde** `arke0_512w` 3.1718 (0.8235 / 0.7943), `arke0_clean`'den 0.0125 kötü. 7.4M'de de aynı: 256'da `v2_xs` 3.9085, `v2_xs_512` 3.9474, `v2_xs_512w` 3.9315. Kazanç uzun bağlamı kullanmaktan geliyor; kısa bağlamda 512 modelleri biraz geride. Warmup bu açığı küçültüyor. 98M'de warmup'sız bir 512 koşusu yok, o yüzden warmup'ın 98M'deki payı ayrıca ölçülmedi. Ana model hâlâ `arke0_clean_last`; `arke0_512w`'ye geçmek Mehmet'in kararı.
 >
 > **15 Kasım:** İki deney bitti (`v2_xs` boyutunda, 7.4M). **Sequence length warmup işe yaradı:** 512 bağlamlı model ilk 12,000 adımı 256'lık pencerelerle yapınca tam v2 val 3.8650 → 3.8496 (token başına −0.0154, iki dilde ~−0.004/karakter), hız aynı. **Kesme işareti tokenizer'ı kazanç vermedi:** karakter başına TR 1.0188, EN 0.9739; üç `v2_xs` seed'inin aralığında (TR 1.0168–1.0184, EN 0.9731–0.9740). Tokenizer değişmiyor. Kalan karar Mehmet'in: 98M modelde 512 + warmup denensin mi (~6 sa). Disk için üç `tok` ara klasörü (6.3 GB) ve `data/v2_apos/train.bin` (2.1 GB) silindi. Warmup grafiği `docs/seq_warmup.png`. Commit `7865288`, push edildi.
@@ -53,7 +60,7 @@ Her aşamanın sonunda güncellenir.
 - Tekrar: örnekleme ayarının etkisi (10 Kasım) ve top-p (11 Kasım) ölçüldü. Kalan: (1) varsayılan ayarı seçmek için metnin kalitesini de ölçen bir yol (tekrar tek başına yetmiyor: T 1.0 tekrarsız ama daha anlamsız). 11 Kasım'da araştırılan seçenekler: MAUVE (çok dilli bir embedding modeliyle), dışarıdan daha büyük bir modelin perplexity'si, LLM hakem, Mehmet'in kör karşılaştırması. Karar Mehmet'in. 12 Kasım: ilk adım kör karşılaştırma, 50 çift okunmayı bekliyor (`python blind_pairs.py --score` sayıyor). Sonuç belirgin değilse ya da daha çok ayar karşılaştırılacaksa MAUVE / LLM hakem. (2) Repetition penalty ölçüldü (14 Kasım): tekrarı top-p kadar indiriyor, ama hangisinin daha anlamlı metin verdiğini yine (1) söyleyecek. `blind_pairs.py` cezayı da karşılaştırabiliyor (14 Kasım); ilk 50 çift okunmadan ikinci set üretilmedi.
 - Noktalamadan önce boşluk: örneklere bakıldı (9 Kasım), tek kural güvenli değil. Dar kural (sadece kelime + ` , ` veya ` . ` + kelime) 14 Kasım'da ölçüldü: güvenli ama nadir, model de seyrek yazıyor. Veri başka bir sebeple yeniden hazırlanırsa (ör. yeni tokenizer) `textclean.py`'ye birlikte eklenebilir; tek başına değmez.
 - Sequence length warmup: 15 Kasım'da `v2_xs` boyutunda işe yaradı (512, warmup'sız koşudan token başına 0.0154 iyi). 16–17 Kasım'da 98M'de 512 + warmup eğitildi: `arke0_512w` kendi bağlamında 3.0859, `arke0_clean` 3.1593; 256'lık pencerelerde ise 3.1718. Açık olanlar:
-  - Ana model `arke0_512w` olsun mu? Mehmet'in kararı. Geçilirse tekrar ölçümleri ve kör çiftler yeni modelle tekrarlanmalı mı, o da karar.
+  - Ana model `arke0_512w` olsun mu? 17 Kasım: hayır, daha çok tekrar ediyor (Kararlar'da). Tekrarı repetition penalty ya da top-p ile bastırınca metni `arke0_clean`'den iyi mi? Denenmedi.
   - 98M'de warmup'ın payı: warmup'sız 512 koşusu gerekiyor (~7 sa).
   - Başka warmup uzunlukları, Li ve ark.'nın doğrusal artışı, ikinci seed.
   - `quantize.py`'nin pencere boyunu seçebilmesi: şimdi hep modelin `block_size`'ı. 256'lık ölçüm scratch bir script'le yapıldı.
@@ -150,4 +157,5 @@ Daha önce (`main`'de, 17 Ekim): model boyutu argümanları ve `runs/` logu, ref
 | 11 Kasım | GPU başka bir işte (oyun dahil) kullanılıyorsa ölçüm başlatılmıyor; önce sorulur | WoW açıkken çalıştırılan ölçümler oyunu kastırdı ve bellek hatasıyla çöktü. |
 | 10 Kasım | Örnekleme varsayılanları (temperature 0.8, top_k 50) değişmedi | Tekrar ayarla çok değişiyor ama metnin anlamlılığını ölçmüyoruz; T 1.0 daha az tekrar edip daha dağınık yazıyor. Kaliteyi ölçmeden "en iyi" ayar seçilemez. |
 | 4 Kasım | `data/v2` eski tokenizer'la (`data/bpe_16384.json`), yeni eğitilen değil | Tek değişken veri olsun: temizliğin etkisi tokenizer'dan ayrılabilsin. Eski model v2 val'de doğrudan ölçülebiliyor ve istenirse v2 ile eğitime devam edebiliyor. İki sözlük 2 token dışında aynıydı (eskide `"\n\n"`, `"unched"`; yenide `" Pa"`, `" laun"`), ama sadece 7,627 token aynı id'deydi. |
+| 17 Kasım | Ana model `arke0_clean_last` kaldı, `arke0_512w_last`'e geçilmedi (Mehmet'in kararı) | `arke0_512w` kendi 512 bağlamında loss'ta önde (3.0859'a karşı 3.1593), 256 pencerede biraz geride (3.1718). Ama üç örnekleme ayarında da daha çok tekrar ediyor: seq-rep-4 %15.4 / %1.7 / %25.4'e karşı %11.9 / %0.8 / %19.0 (T 0.8 k 50; T 1.0 p 0.9; 512 token). Düşük loss, daha iyi metin demek değil. |
 | 15 Kasım | Tokenizer değişmedi: kesme işareti kuralı alınmadı | `v2_xs` boyutunda karakter başına loss üç seed'in aralığında kaldı (TR 1.0188, EN 0.9739). Yeniden tokenize edip modelleri yeniden eğitmeye değecek bir kazanç ölçülmedi. |

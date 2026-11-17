@@ -95,7 +95,9 @@ Work is saved in small shards, so after a crash the same command continues where
   `--eval-every`, `--save-every`, `--seed`, `--no-compile`, `--deterministic`. `--block_size` (default
   256) and `--batch_size` (default 64) set the window length and windows per step; keep their product
   to keep the token budget. `--seq-warmup N` trains the first N steps on half-length windows, twice
-  as many per step, then on full windows.
+  as many per step, then on full windows. A new run stops if `<name>.pt` or `<name>_last.pt` is
+  already on disk, so a forgotten `--resume` cannot replace a trained model with an untrained one;
+  `--overwrite` starts over on purpose.
 - `sample.py --seed` picks the random draws (default 1337; the same command gives the same text).
   It stops a sample at `<|endoftext|>` (`generate(..., stop_token=...)`) instead of starting a new,
   unrelated document; the other scripts keep generating to the token limit, as their results were

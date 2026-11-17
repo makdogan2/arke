@@ -94,11 +94,17 @@ class Arke0(nn.Module):
         x = self.drop(self.tok_emb(idx) + self.pos_emb(pos))
         for blok in self.blocks:
             x = blok(x)
-        logits = self.head(self.ln_f(x))
 
-        loss = None
-        if targets is not None:
+        if targets is not None:      # training and evaluation: a score for every position, (B, T, vocab)
+            logits = self.head(self.ln_f(x))
             loss = F.cross_entropy(logits.view(B * T, -1), targets.view(B * T))
+        else:
+            # Generating: only the last position predicts the next token. LayerNorm and the output layer
+            # work on each position by itself, so they can run on that one alone: the same scores,
+            # without building the (B, T, vocab) table. The slice -1: (not the index -1) keeps the
+            # T axis, so the shape is (B, 1, vocab).
+            logits = self.head(self.ln_f(x[:, -1:, :]))
+            loss = None
         return logits, loss
 
     @torch.no_grad()

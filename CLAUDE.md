@@ -46,6 +46,7 @@ AI is my collaborator, not my replacement: I keep the understanding and the cont
   `textclean.normalize_whitespace`, tokenized with the same `bpe_16384.json` as `data/`).
   `data/` is the pre-cleaning version that `arke0_web` was trained on.
 - `train.py --data <folder>` reads those files with memmap; `--resume` continues from `<name>_last.pt`.
+  A new run stops if `<name>.pt` or `<name>_last.pt` is on disk (17 Nov); `--overwrite` replaces them.
   `torch.compile` needs `triton-windows` (installed); `--no-compile` turns it off.
   `--deterministic` makes runs bit-identical (same seed, also across `--resume`), at no measured speed cost.
   `--block_size` / `--batch_size` (defaults 256 / 64) and `--seq-warmup N` (half-length windows, twice
@@ -56,6 +57,8 @@ AI is my collaborator, not my replacement: I keep the understanding and the cont
 - `<|endoftext|>` is a special token (id 0) separating documents.
 - `Config` is a dataclass in `model.py`. Checkpoints store `asdict(cfg)`; `sample.py` rebuilds
   the architecture from the checkpoint, not from defaults.
+- `forward` without `targets` returns the logits of the last position only, `(B, 1, vocab)` (17 Nov):
+  all `generate` needs. With `targets` (training, `quantize.py`) it returns every position.
 - `experiments/`: scripts from the learning phase (char tokenizer, BPE demos, attention). Not
   part of the pipeline; nothing imports them. `pretok_compare.py` (14 Nov) trains a GPT-2-rule and an
   apostrophe-aware tokenizer on the same sample into `runs/pretok/` and compares them on val text.
@@ -69,7 +72,8 @@ AI is my collaborator, not my replacement: I keep the understanding and the cont
   `runs/blind/claude_choices.txt` holds Claude's own blind choices (12 Nov), not scored until Mehmet
   has filled his: `--score --choices claude_choices.txt --agree pairs.txt`.
   Run-to-run noise of full val: std about 0.0025 (`v2_xs`, three seeds). Run `sample_stats.py`
-  with the GPU free: at batch 100 next to a training run or a game it goes out of memory. Check
+  with the GPU free: at batch 100 next to a training run or a game it goes out of memory (generating
+  reserves about 12.5 GB for 1.2 GB in use; 31.8 GB before 17 Nov). Check
   `nvidia-smi` first and ask before using a GPU that something else is using.
 - Current model: `arke0_clean_last.pt` (`arke0_web`'s recipe on `data/v2`; step 122k, also the
   best checkpoint), 97.8M params, 2.0B tokens, 5 h 57 min. Full v2 val: 3.1593/token, TR 0.8202/ch,

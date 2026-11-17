@@ -30,6 +30,8 @@ parser.add_argument("--data", default="data",
                     help="folder with train.bin, val.bin and meta.json from data_prep.py")
 parser.add_argument("--resume", action="store_true",
                     help="continue from <name>_last.pt (model size, data and schedule come from the checkpoint)")
+parser.add_argument("--overwrite", action="store_true",
+                    help="start a new run although <name>.pt or <name>_last.pt is on disk; they are replaced")
 parser.add_argument("--seed", type=int, default=1337,
                     help="sets the initial weights and the training batches; --resume takes both from the checkpoint")
 parser.add_argument("--max-iters", type=int, default=8000)
@@ -59,6 +61,14 @@ device     = "cuda"
 
 ckpt_best = ROOT / f"{args.name}.pt"
 ckpt_last = ROOT / f"{args.name}_last.pt"
+# A new run writes <name>.pt at step 0 and <name>_last.pt at its first save. Under a name that is already
+# on disk (a forgotten --resume) that would replace a trained model with an untrained one, so stop here.
+on_disk = [p.name for p in (ckpt_best, ckpt_last) if p.exists()]
+if args.resume and args.overwrite:
+    parser.error("--resume continues the run and --overwrite replaces it: pass only one of them")
+if on_disk and not args.resume and not args.overwrite:
+    parser.error(f"the name {args.name} is taken ({', '.join(on_disk)} on disk) and a new run would replace it: "
+                 "continue it with --resume, pick another --name, or pass --overwrite to start over")
 # load to CPU: RNG states must stay CPU tensors; weights and optimizer state
 # are copied to the GPU by load_state_dict
 ckpt = torch.load(ckpt_last, map_location="cpu", weights_only=True) if args.resume else None

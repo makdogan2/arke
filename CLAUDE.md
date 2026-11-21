@@ -34,6 +34,7 @@ AI is my collaborator, not my replacement: I keep the understanding and the cont
 - Python env is `.venv` (created with uv). PowerShell execution policy blocks the activate script:
   - always run Python as `.venv\Scripts\python.exe <script>`
   - install packages with `uv pip install <pkg>`
+  - `requirements.txt` pins what the code imports (21 Nov): update it when a package is added or upgraded
 - `data/` and `*.pt` are gitignored.
 
 ## Pipeline
@@ -56,6 +57,10 @@ AI is my collaborator, not my replacement: I keep the understanding and the cont
   to the train.py before them.
 - Old pipeline (`data_download.py` -> `tokenizer_bpe.py` -> `data/bpe.pt`, vocab 8192) is what
   `arke0_bpe.pt` and the old size experiment (`runs/xs`, `s`, `m`, `l`) were trained on; the current train.py no longer reads it.
+  `tokenizer_bpe.py` takes no arguments and rewrites `data/bpe.pt` as soon as it runs. Never try
+  `--help` on a script without argparse (`tokenizer_bpe.py`, `count_junk.py`, `explore_batch.py`,
+  `embed_demo.py`): on 21 Nov that rewrote `data/bpe.pt` (same content: the step-0 losses of the four
+  24 Oct runs came out equal to their logs to six decimals).
 - `<|endoftext|>` is a special token (id 0) separating documents.
 - `Config` is a dataclass in `model.py`. Checkpoints store `asdict(cfg)`; `sample.py` rebuilds
   the architecture from the checkpoint, not from defaults.
@@ -67,10 +72,13 @@ AI is my collaborator, not my replacement: I keep the understanding and the cont
   the recorded texts and numbers must stay reproducible. It stops applying once the sequence is longer
   than `block_size` (positions are absolute). `sample_stats.py --kv-cache` uses it: 49.6 s -> 7.1 s
   for 500 x 256 tokens, 12.5 GB -> 1.6 GB reserved. No gain for a single prompt.
-- Tests: `.venv\Scripts\python.exe -m unittest test_clean test_model test_train` (53 tests, CPU, about
-  10 s). `test_model.py` covers `forward`, `generate` and the KV cache on a tiny untrained model;
-  `test_train.py` covers the checkpoint guard without data or GPU. Run them after changing `model.py`
-  or `train.py`.
+- Tests: `.venv\Scripts\python.exe -m unittest test_clean test_model test_train test_cli` (56 tests,
+  CPU, about 15 s). `test_model.py` covers `forward`, `generate` and the KV cache on a tiny untrained
+  model; `test_train.py` covers the checkpoint guard without data or GPU; `test_cli.py` (21 Nov) runs
+  the scripts' command lines (`--help`, refused arguments) as copies in an empty temp folder. Run
+  them after changing `model.py`, `train.py` or a script's arguments. GitHub Actions runs them at
+  every push and pull request (21 Nov; `.github/workflows/tests.yml`: Windows, CPU build of torch,
+  the packages of `requirements.txt`).
 - `experiments/`: scripts from the learning phase (char tokenizer, BPE demos, attention). Not
   part of the pipeline; nothing imports them. `pretok_compare.py` (14 Nov) trains a GPT-2-rule and an
   apostrophe-aware tokenizer on the same sample into `runs/pretok/` and compares them on val text.

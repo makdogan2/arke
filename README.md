@@ -36,9 +36,8 @@ architecture, tokenizer, steps and schedule. 5 h 57 min at 95–100k tokens/s, i
 
 ```
 uv venv --python 3.12
-uv pip install torch --index-url https://download.pytorch.org/whl/cu128
-uv pip install tokenizers datasets huggingface_hub pyarrow tqdm numpy matplotlib regex
-uv pip install "triton-windows>=3.7,<3.8"   # Windows only, for torch.compile (torch 2.11 -> Triton 3.7)
+uv pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cu128   # or .../whl/cpu without a GPU
+uv pip install -r requirements.txt   # the rest, pinned; on Windows also Triton, which torch.compile needs
 ```
 
 On Windows, if the PowerShell execution policy blocks `.venv\Scripts\activate`, skip activation and
@@ -70,7 +69,7 @@ Work is saved in small shards, so after a crash the same command continues where
 .venv\Scripts\python.exe train.py --name arke1      # train -> arke1.pt (best val), arke1_last.pt, runs/arke1.json
 .venv\Scripts\python.exe train.py --name arke1 --resume   # continue an interrupted run
 .venv\Scripts\python.exe sample.py --name arke1     # generate text from the checkpoint
-.venv\Scripts\python.exe -m unittest test_clean test_model test_train   # tests: cleaning rules, model and generate, checkpoint guard
+.venv\Scripts\python.exe -m unittest test_clean test_model test_train test_cli   # tests: cleaning rules, model and generate, checkpoint guard, command lines
 .venv\Scripts\python.exe quantize.py --scheme asym  # fake quantization at 16/8/4/2 bits -> loss table
 .venv\Scripts\python.exe quantize.py --scheme asym --bits 16 4 --packed --save arke0_web_q4.pt
 .venv\Scripts\python.exe quantize.py --load arke0_web_q4.pt   # measure the 4-bit file alone
@@ -612,6 +611,9 @@ model.py           Config dataclass + transformer (Arke0); generate with an opti
 test_model.py      tests for model.py: forward, generate, the KV cache (tiny model, CPU)
 train.py           training loop: memmap data, torch.compile, checkpoints + resume
 test_train.py      tests for train.py's checkpoint guard
+test_cli.py        tests for the scripts' command lines: --help works, arguments that cannot work are refused
+requirements.txt   the packages the code imports, at the versions the results were produced with
+.github/           workflows/tests.yml: GitHub Actions runs the tests at every push (Windows, CPU build of PyTorch)
 sample.py          text generation
 quantize.py        quantization from scratch: 8/4/2-bit loss table, 4-bit packing, --save / --load
 sample_stats.py    counts cleaned-away whitespace and repetition in generated samples, compares checkpoints

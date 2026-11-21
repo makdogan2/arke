@@ -3,7 +3,7 @@ import re
 import sys
 from pathlib import Path
 
-from data_download import strip_reference_sections
+from textclean import strip_reference_sections
 
 ROOT = Path(__file__).parent
 EOT = "<|endoftext|>"

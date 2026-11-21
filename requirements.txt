@@ -1,0 +1,27 @@
+# The packages the code in this repository imports, at the versions the results in the README were
+# produced with (Python 3.12, Windows 11).
+#
+# Install PyTorch first, as the build for your machine (https://pytorch.org/get-started/locally/):
+#     uv pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cu128   # NVIDIA GPU, as used here
+#     uv pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu     # CPU only: enough for the tests
+# then everything else:
+#     uv pip install -r requirements.txt
+
+# model, training, sampling, measuring
+torch==2.11.0
+numpy==2.5.1            # the token files (train.bin, val.bin) are read as numpy memmaps
+tokenizers==0.23.1      # the BPE tokenizer
+
+# data pipeline
+datasets==5.0.1         # data_download.py: Wikipedia
+huggingface_hub==1.26.0 # data_prep.py: FineWeb2-HQ and FineWeb-Edu
+pyarrow==25.0.0         # data_prep.py: reads the parquet shards
+tqdm==4.70.0            # data_download.py: progress bar
+
+# plots and small demos
+matplotlib==3.11.1      # plot_scaling.py, plot_seq_warmup.py
+regex==2026.7.19        # experiments/bpe_demo_2.py, experiments/bpe_demo_3.py
+requests==2.34.2        # embed_demo.py
+
+# Windows only: torch.compile needs Triton (torch 2.11 -> Triton 3.7)
+triton-windows>=3.7,<3.8; sys_platform == "win32"
